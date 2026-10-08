@@ -11,6 +11,7 @@
 
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace cppi;
@@ -123,6 +124,76 @@ TEST(Debugger, PointersAreShownByWhatTheyPointTo) {
     ASSERT_NE(q, nullptr);
     EXPECT_EQ(p->value, "&a[1]");
     EXPECT_EQ(q->value, "nullptr");
+}
+
+TEST(Debugger, ScalarsAreShownAsThePlayerWroteThem) {
+    cppi_test::RecordingHost recorder;
+    Interpreter interpreter(recorder.make_registry(), Options{Standard::Cpp11});
+    const char* source =
+        "enum Color { Red, Green };\n"
+        "struct Point { int x; int y; };\n"
+        "bool flag = true;\n"
+        "char letter = 'A';\n"
+        "char bell = 7;\n"
+        "double ratio = 2.5;\n"
+        "unsigned long long big = 18446744073709551615ULL;\n"
+        "Color color = Green;\n"
+        "Color odd = (Color)7;\n"
+        "Point p = {1, 2};\n"
+        "int* to_field = &p.y;\n"
+        "int* none = nullptr;\n"
+        "int* heap = new int(3);\n"
+        "take_int(1);\n";
+    auto compiled = interpreter.compile(source);
+    ASSERT_TRUE(compiled.ok());
+    auto execution = interpreter.start(*compiled.program);
+    execution.set_breakpoint(14);
+    ASSERT_EQ(execution.run().status, RunStatus::Paused);
+
+    const auto globals = execution.globals();
+    const std::vector<std::pair<std::string, std::string>> expected = {
+        {"flag", "true"},
+        {"letter", "'A' (65)"},
+        {"bell", "7"},
+        {"ratio", "2.5"},
+        {"big", "18446744073709551615"},
+        {"color", "Green"},
+        {"odd", "7"},
+        {"p", "{x=1, y=2}"},
+        {"to_field", "&p.y"},
+        {"none", "nullptr"},
+        {"heap", "heap object"},
+    };
+    for (const auto& [name, value] : expected) {
+        const Variable* v = find(globals, name);
+        ASSERT_NE(v, nullptr) << name;
+        EXPECT_EQ(v->value, value) << name;
+    }
+}
+
+TEST(Debugger, AnExecutionCanBeMovedAndItsBreakpointsCleared) {
+    cppi_test::RecordingHost recorder;
+    Interpreter interpreter(recorder.make_registry());
+    auto compiled = interpreter.compile("take_int(1);\ntake_int(2);\ntake_int(3);\n");
+    ASSERT_TRUE(compiled.ok());
+    auto execution = interpreter.start(*compiled.program);
+    execution.set_breakpoint(2);
+    execution.set_breakpoint(3);
+    execution.clear_breakpoint(2);
+    ASSERT_EQ(execution.run().status, RunStatus::Paused);
+    EXPECT_EQ(execution.status(), RunStatus::Paused);
+    EXPECT_EQ(execution.current_location().begin.line, 3);
+
+    Execution moved(std::move(execution));
+    auto other = interpreter.start(*compiled.program);
+    other = std::move(moved);
+    other.set_breakpoint(1);
+    other.clear_breakpoints();
+    EXPECT_EQ(other.run().status, RunStatus::Completed);
+    EXPECT_EQ(other.status(), RunStatus::Completed);
+    EXPECT_TRUE(other.diagnostics().empty());
+    EXPECT_TRUE(other.output().empty());
+    EXPECT_EQ(recorder.calls.size(), 3);
 }
 
 TEST(Debugger, StepLineAdvancesOneSourceLineAtATime) {

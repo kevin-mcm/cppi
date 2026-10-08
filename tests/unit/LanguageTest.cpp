@@ -38,6 +38,20 @@ TEST(Language, VariablesAndArithmeticFollowC) {
          Calls{"take_int(2)", "take_int(7)", "take_int(5)", "take_int(16)", "take_int(-4)", "take_int(-1)"}));
 }
 
+TEST(Language, BitwiseOperatorsOnVariablesOfEveryIntegerType) {
+    // Variables, not constants: these run in the VM rather than being folded.
+    EXPECT_TRUE((output("int a = 12; int s = 2; take_int(a << s); take_int(a >> s); take_int(a & 10); take_int(a | 3); "
+                        "take_int(a ^ 5);") ==
+                 Calls{"take_int(48)", "take_int(3)", "take_int(8)", "take_int(15)", "take_int(9)"}));
+    EXPECT_TRUE((output("long b = 1; long t = 40; take_long(b << t); take_long((b << t) >> 38);") ==
+                 Calls{"take_long(1099511627776)", "take_long(4)"}));
+    EXPECT_TRUE((output("unsigned u = 12; unsigned s = 2; take_long(u << s); take_long(u >> s); take_long(u & 10u); "
+                        "take_long(u | 3u); take_long(u ^ 5u);") ==
+                 Calls{"take_long(48)", "take_long(3)", "take_long(8)", "take_long(15)", "take_long(9)"}));
+    EXPECT_EQ(runtime_error("int a = 1; int s = 40; take_int(a << s);").code, DiagCode::InvalidShift);
+    EXPECT_EQ(runtime_error("unsigned u = 1; int s = -1; take_long(u >> s);").code, DiagCode::InvalidShift);
+}
+
 TEST(Language, ComparisonsLogicAndShortCircuit) {
     EXPECT_EQ(output("take_bool(3 < 4 && 4 <= 4 && 5 > 4 && 4 >= 5 == false && 1 != 2);"), Calls{"take_bool(true)"});
     // The right side of && is not evaluated when the left is false.
@@ -54,6 +68,10 @@ TEST(Language, LongDoubleCharAndBoolConversions) {
     EXPECT_TRUE((output("char c = 'A'; c += 2; take_int(c); char d = 200; take_int(d);") ==
                  Calls{"take_int(67)", "take_int(-56)"}));
     EXPECT_EQ(output("bool b = 5; take_int(b + b);"), Calls{"take_int(2)"});
+    EXPECT_TRUE((output("double d = 5; d /= 2; take_double(d); d += 1; d *= 2; d -= 0.5; take_double(d);") ==
+                 Calls{"take_double(2.5)", "take_double(6.5)"}));
+    EXPECT_TRUE((output("int i = 2; i += 1.5; take_int(i); double d = 1; d += i; take_double(d);") ==
+                 Calls{"take_int(3)", "take_double(4)"}));
     EXPECT_TRUE((output("take_long(sizeof(int)); take_long(sizeof(double)); take_long(sizeof(char));") ==
                  Calls{"take_long(4)", "take_long(8)", "take_long(1)"}));
 }
