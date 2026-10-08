@@ -1218,10 +1218,13 @@ void ExpressionBinder::report_invalid_operands(std::string_view op, const BExpr&
     // the address of something that is not an lvalue): the operator is not what is missing.
     const bool pointer = ctx_.types.is_pointer(lhs.type) || (rhs != nullptr && ctx_.types.is_pointer(rhs->type));
     const bool overloadable =
-        op != "?:" && op != "->" && op != "delete" && op != "delete[]" && !pointer && !(op == "&" && rhs == nullptr);
-    const BExpr* record = ctx_.types.is_record(lhs.type)                      ? &lhs
-                          : rhs != nullptr && ctx_.types.is_record(rhs->type) ? rhs
-                                                                              : nullptr;
+        op != "?:" && op != "->" && op != "delete" && op != "delete[]" && !pointer && (op != "&" || rhs != nullptr);
+    const BExpr* record = nullptr;
+    if (ctx_.types.is_record(lhs.type)) {
+        record = &lhs;
+    } else if (rhs != nullptr && ctx_.types.is_record(rhs->type)) {
+        record = rhs;
+    }
     if (overloadable && record != nullptr) {
         ctx_.report(DiagnosticFactory::no_operator(range, op, ctx_.types.name(record->type)));
         if (ctx_.library_depth > 0 && !ctx_.library_entry.empty() && ctx_.library_site.begin.line != 0) {

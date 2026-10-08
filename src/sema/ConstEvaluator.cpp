@@ -35,20 +35,24 @@ std::optional<ConstEvaluator::Value> ConstEvaluator::convert(Value v, Conv conv)
     switch (conv) {
         case Conv::IntToDouble: return Value{true, 0, static_cast<double>(v.i)};
         case Conv::ULongToDouble: return Value{true, 0, static_cast<double>(static_cast<std::uint64_t>(v.i))};
-        // Out of range (or NaN) is undefined behavior: not a constant, so the
-        // VM's DoubleToInt reports it (same ranges).
+        // Out of range (or NaN, which every comparison rejects) is undefined
+        // behavior: not a constant, so the VM's DoubleToInt reports it (same ranges).
         case Conv::DoubleToInt32:
-            if (!(v.d > -2147483649.0 && v.d < 2147483648.0)) return std::nullopt;
-            return Value{false, static_cast<std::int64_t>(v.d), 0};
+            if (v.d > -2147483649.0 && v.d < 2147483648.0) return Value{false, static_cast<std::int64_t>(v.d), 0};
+            return std::nullopt;
         case Conv::DoubleToInt64:
-            if (!(v.d >= -9223372036854775808.0 && v.d < 9223372036854775808.0)) return std::nullopt;
-            return Value{false, static_cast<std::int64_t>(v.d), 0};
+            if (v.d >= -9223372036854775808.0 && v.d < 9223372036854775808.0) {
+                return Value{false, static_cast<std::int64_t>(v.d), 0};
+            }
+            return std::nullopt;
         case Conv::DoubleToUInt32:
-            if (!(v.d > -1.0 && v.d < 4294967296.0)) return std::nullopt;
-            return Value{false, static_cast<std::int64_t>(v.d), 0};
+            if (v.d > -1.0 && v.d < 4294967296.0) return Value{false, static_cast<std::int64_t>(v.d), 0};
+            return std::nullopt;
         case Conv::DoubleToUInt64:
-            if (!(v.d > -1.0 && v.d < 18446744073709551616.0)) return std::nullopt;
-            return Value{false, static_cast<std::int64_t>(static_cast<std::uint64_t>(v.d)), 0};
+            if (v.d > -1.0 && v.d < 18446744073709551616.0) {
+                return Value{false, static_cast<std::int64_t>(static_cast<std::uint64_t>(v.d)), 0};
+            }
+            return std::nullopt;
         case Conv::Trunc16: return Value{false, static_cast<std::int16_t>(v.i & 0xFFFF), 0};
         case Conv::TruncU8: return Value{false, v.i & 0xFF, 0};
         case Conv::TruncU16: return Value{false, v.i & 0xFFFF, 0};

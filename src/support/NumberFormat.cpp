@@ -109,7 +109,7 @@ std::string NumberFormat::shortest(double value) {
     if (error != std::errc{}) {
         return "?";
     }
-    return std::string(buffer.data(), end);
+    return {buffer.data(), end};
 #else
     const int n = std::snprintf(buffer.data(), buffer.size(), "%.6g", value);
     if (n < 0 || static_cast<std::size_t>(n) >= buffer.size()) {
@@ -129,7 +129,7 @@ std::string NumberFormat::shortest(double value) {
 std::optional<double> NumberFormat::parse(std::string_view text) {
     // A literal starts with a digit or the point (from_chars and strtod also
     // read a sign, "inf" and "nan").
-    if (text.empty() || !((text.front() >= '0' && text.front() <= '9') || text.front() == '.')) {
+    if (text.empty() || ((text.front() < '0' || text.front() > '9') && text.front() != '.')) {
         return std::nullopt;
     }
     const bool hex = text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X');

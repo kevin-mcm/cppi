@@ -1,11 +1,14 @@
 #include "support/RecordingHost.hpp"
 
+#include "codegen/OpCode.hpp"
 #include "codegen/ProgramData.hpp"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
 #include <optional>
+#include <set>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -23,6 +26,44 @@ TEST(Program, ProgramsCanBeDisassembled) {
     EXPECT_NE(listing.find("HALT"), std::string::npos);
     EXPECT_EQ(result.program->instruction_count(), 5);
     EXPECT_EQ(result.program->max_stack_depth(), 1);
+}
+
+TEST(Program, TheListingNamesFunctionsTargetsAndKinds) {
+    Interpreter interpreter(HostRegistry{}, Options{Standard::Cpp17});
+    auto result = interpreter.compile(R"(
+        struct Shape { virtual int area() const { return 0; } };
+        struct Square : Shape { int side = 2; int area() const override { return side * side; } };
+        long twice(long x) { return x * 2; }
+        double half(double x) { return x / 2; }
+        int total = 0;
+        for (int i = 0; i < 3; i++) { total += i; }
+        int values[2] = {1, 2};
+        int* p = values;
+        p++;
+        Square square;
+        const Shape& shape = square;
+        total += shape.area() + static_cast<int>(twice(3) + half(4.0)) + *p + values[1] - static_cast<int>(p - values);
+        if (total > 1 && total < 100) { total--; }
+    )");
+    ASSERT_TRUE(result.ok());
+    const auto listing = result.program->disassemble();
+    for (const char* expected :
+         {"      ; twice\n", "      ; Square::area\n", "Shape::area (1 args) slot 0", "CALL        twice (1 args)",
+          "JUMP_CMP    if LT int -> 0005", "JUMP_CMP    if !GT int -> ", "MUL         long", "DIV         double",
+          "INDEX       x1 of 2", "MEMBER      +1", "PTR_ADD     1", "PTR_DIFF    1", "INC         [0] +1 int",
+          "INC         global[", "] -1 int", "INIT_HEADERS"}) {
+        EXPECT_NE(listing.find(expected), std::string::npos) << expected << "\n" << listing;
+    }
+}
+
+TEST(Program, EveryOpCodeHasItsOwnName) {
+    std::set<std::string_view> names;
+    for (unsigned n = 0; n <= static_cast<unsigned>(detail::OpCode::Halt); ++n) {
+        const std::string_view name = detail::to_string(static_cast<detail::OpCode>(n));
+        EXPECT_NE(name, "???") << n;
+        EXPECT_TRUE(names.insert(name).second) << "repeated name " << name;
+        EXPECT_EQ(name.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"), std::string_view::npos) << name;
+    }
 }
 
 TEST(Program, ConstantsAreDeduplicated) {

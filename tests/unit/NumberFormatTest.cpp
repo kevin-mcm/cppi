@@ -168,9 +168,12 @@ TEST(NumberFormat, AGlobalLocaleWithADecimalCommaChangesNothing) {
         GTEST_SKIP() << "no locale with a decimal comma is installed";
     }
     {
+        // Some C libraries (Emscripten's musl) accept the name but keep the point.
         std::ostringstream check;
         check << 1.5;
-        ASSERT_EQ(check.str(), "1,5");  // the locale really is in effect
+        if (check.str() != "1,5") {
+            GTEST_SKIP() << "the installed locale does not use a decimal comma";
+        }
     }
     expect_literals_and_output();
 }

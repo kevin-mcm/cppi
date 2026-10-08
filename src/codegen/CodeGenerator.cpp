@@ -1257,9 +1257,9 @@ void CodeGenerator::conversion(Conv conv, SourceRange range) {
         case Conv::DoubleToUInt32: emit(OpCode::DoubleToInt, range, 0, 2); break;
         case Conv::DoubleToUInt64: emit(OpCode::DoubleToInt, range, 0, 3); break;
         case Conv::ULongToDouble: emit(OpCode::ULongToDouble, range); break;
-        case Conv::Retype: break;  // same bits, another type: nothing to do at runtime
+        case Conv::Retype:  // same bits, another type: nothing to do at runtime
         case Conv::ArrayDecay:
-        case Conv::PtrOffset: break;  // handled by the caller
+        case Conv::PtrOffset: break;  // decay and offset: handled by the caller
     }
 }
 

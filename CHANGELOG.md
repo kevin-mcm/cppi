@@ -36,6 +36,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - `cppi-run`: one `MessageCatalog` per language (`EnglishCatalog`, `SpanishCatalog`), `FarmHostBindings` separates the farm from the interpreter, `Application` and `CommandLineParser` replace the logic in `main`.
 
 ### Fixed
+- A compound assignment to a `double` (`d /= 2`, `d += x`) converted the variable's value as if it were an integer before operating, so `double d = 5; d /= 2;` gave `4.88191e+18`; inside a `constexpr` function it made the call not a constant.
 - CI: every job past Format was skipped while Format failed; once it ran, these surfaced and are fixed: GCC 13 Release false positives (`-Wstringop-overflow` in `DeclarationBinder`, `-Wnull-dereference` in a test), a 32-bit sign conversion in `Memory`, MSVC's C4996 on `getenv` in cppi-run, clang-tidy `readability-qualified-auto` in `Feature.cpp`, and the coverage report's missing output folder.
 - WebAssembly: test executables get a 5 MB stack, as in Godot's web export (Emscripten's default is 64 KiB), and constexpr calls nest at most 256 deep instead of 512, which overflowed the ~1 MB machine stack of Node.js and browsers.
 - Builds with Clang 14 (explicit deduction guide for `Overloaded`; no `std::ranges::reverse_view`, which Clang 14 cannot use with libstdc++ 11).
