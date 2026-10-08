@@ -6,6 +6,7 @@
 # Build trees (Conan + CMake)
 /build/
 /build-*/
+/dist/
 CMakeUserPresets.json
 compile_commands.json
 
