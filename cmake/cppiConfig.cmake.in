@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(tree-sitter)
+find_dependency(tree-sitter-cpp)
+
+include("${CMAKE_CURRENT_LIST_DIR}/cppiTargets.cmake")
+check_required_components(cppi)

@@ -1,0 +1,3 @@
+examples/levels/03-locked-loop.cpp:2:1: error E0300: Aún no desbloqueaste los bucles
+  2 | while (can_harvest()) {
+    | ^

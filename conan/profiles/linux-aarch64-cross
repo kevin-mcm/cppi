@@ -1,0 +1,11 @@
+# Linux arm64 cross-compiled from x86-64, tests run under qemu-user.
+# Requires: g++-aarch64-linux-gnu, qemu-user (Debian/Ubuntu packages).
+# A proxy for Android/iOS arm64 that can run anywhere.
+include(ci)
+
+[settings]
+arch=armv8
+
+[conf]
+tools.build:compiler_executables={"c": "aarch64-linux-gnu-gcc", "cpp": "aarch64-linux-gnu-g++"}
+tools.cmake.cmaketoolchain:extra_variables={"CMAKE_CROSSCOMPILING_EMULATOR": "qemu-aarch64;-L;/usr/aarch64-linux-gnu"}

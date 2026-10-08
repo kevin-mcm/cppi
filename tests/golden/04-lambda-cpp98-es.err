@@ -1,0 +1,6 @@
+examples/levels/04-lambda-in-cpp98.cpp:2:1: error E0301: Para usar la deducción de tipos con 'auto' necesitas C++11 (estás usando C++98)
+  2 | auto step = []() { move(East); };
+    | ^~~~
+examples/levels/04-lambda-in-cpp98.cpp:2:13: error E0301: Para usar las lambdas necesitas C++11 (estás usando C++98)
+  2 | auto step = []() { move(East); };
+    |             ^~~~~~~~~~~~~~~~~~~~

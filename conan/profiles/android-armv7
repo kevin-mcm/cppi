@@ -1,0 +1,5 @@
+# Older Android devices (armeabi-v7a, 32-bit).
+include(android)
+
+[settings]
+arch=armv7

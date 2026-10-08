@@ -1,0 +1,17 @@
+# Shared Android settings. Use one of android-arm64 / android-armv7 /
+# android-x86_64 (they include this file). Needs ANDROID_NDK_HOME.
+include(default)
+
+[settings]
+os=Android
+os.api_level=24
+compiler=clang
+compiler.version=18
+compiler.libcxx=c++_static
+compiler.cppstd=20
+
+[options]
+cppi/*:with_tools=False
+
+[conf]
+tools.android:ndk_path={{ os.getenv("ANDROID_NDK_HOME") }}

@@ -1,0 +1,5 @@
+# Android phones and tablets (arm64-v8a).
+include(android)
+
+[settings]
+arch=armv8

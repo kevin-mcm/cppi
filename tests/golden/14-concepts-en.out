@@ -1,0 +1,21 @@
+Initial world:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  @ " " " "
+
+Output:
+integral<double>: 0
+
+Final world:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  " " @ " "
+
+Result: completed
+Operations: 49 / 10000
+Hay: 1
+Position: (2, 0)

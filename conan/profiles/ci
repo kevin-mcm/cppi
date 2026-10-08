@@ -1,0 +1,5 @@
+# Base CI profile: the auto-detected compiler plus C++20.
+include(default)
+
+[settings]
+compiler.cppstd=20

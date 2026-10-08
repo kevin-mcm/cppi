@@ -1,0 +1,2 @@
+harvest();
+move(East);

@@ -1,0 +1,5 @@
+--lang
+es
+--std
+c++11
+examples/levels/07-exceptions.cpp

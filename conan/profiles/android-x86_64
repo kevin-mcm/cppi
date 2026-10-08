@@ -1,0 +1,5 @@
+# Android emulator on CI (x86_64): this is where the tests run.
+include(android)
+
+[settings]
+arch=x86_64

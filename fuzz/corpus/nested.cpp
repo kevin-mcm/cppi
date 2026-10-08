@@ -1,0 +1,1 @@
+take(take(0x2A));

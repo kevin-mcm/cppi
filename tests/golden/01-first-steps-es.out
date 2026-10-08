@@ -1,0 +1,18 @@
+Mundo inicial:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  @ " " " "
+
+Mundo final:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  . . @ " "
+
+Resultado: completado
+Operaciones: 35 / 10000
+Heno: 3
+Posición: (2, 0)

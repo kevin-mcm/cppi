@@ -1,0 +1,7 @@
+--lang
+en
+--quiet
+--trace
+--budget
+30
+examples/levels/06-budget.cpp

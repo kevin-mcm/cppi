@@ -1,0 +1,3 @@
+examples/levels/11-macros.cpp:2:1: error E0302: Preprocessor directives: not available in this version of the game yet
+  2 | #define STEPS 3
+    | ^

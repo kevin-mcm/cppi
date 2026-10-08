@@ -1,0 +1,17 @@
+cppi-run: unknown option '--frobnicate'
+
+usage: cppi-run [options] <file | ->
+
+Runs a C++ program on a small simulated farm using the cppi interpreter.
+
+options:
+  --std <c++98|c++11|...>   language standard (default: c++98)
+  --lock <a,b,...>          lock features, e.g. --lock loops,variables
+  --budget <n>              operation budget (default: 10000)
+  --size <n>                farm size, 1-64 (default: 5)
+  --lang <es|en>            message language (default: from LANG)
+  --trace                   print every host call
+  --dump-bytecode           print the compiled bytecode
+  --quiet                   do not draw the farm
+  --version                 print the version
+  -h, --help                show this help

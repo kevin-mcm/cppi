@@ -1,0 +1,60 @@
+---
+# Strict but pragmatic. Each disabled check has a reason.
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cert-err58-cpp,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-avoid-do-while,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -misc-non-private-member-variables-in-classes,
+  -modernize-avoid-c-arrays,
+  -modernize-use-trailing-return-type,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-uppercase-literal-suffix,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-convert-member-functions-to-static,
+  -cppcoreguidelines-avoid-const-or-ref-data-members
+# Why some are off:
+#   avoid-c-arrays / constant-array-index: constexpr lookup tables are clearer as C arrays.
+#   pro-type-vararg: snprintf in the disassembler.
+#   no-recursion: AST passes recurse; depth is capped by the parser (kMaxNesting).
+#   non-private-member-variables: AST and value types are plain aggregates by design.
+#   include-cleaner: noisy with umbrella headers.
+#   avoid-const-or-ref-data-members: short-lived helpers (analyzer context,
+#     code generator, observers) intentionally borrow what they work on.
+WarningsAsErrors: ''
+HeaderFilterRegex: '(include/cppi|src|tools)/.*'
+FormatStyle: file
+CheckOptions:
+  # std::ranges::reverse_view does not build with Clang 14 + libstdc++ 11.
+  - key: modernize-loop-convert.UseCxx20ReverseRanges
+    value: false
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
