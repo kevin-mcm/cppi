@@ -1,0 +1,5 @@
+--lang
+en
+--std
+c++11
+examples/levels/04-lambda-in-cpp98.cpp

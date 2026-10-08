@@ -1,0 +1,260 @@
+# CI workflow: format check, builds and tests on every platform, Android,
+# WebAssembly, sanitizers, clang-tidy, coverage and a short fuzz run.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install clang-format
+        run: sudo apt-get install -y --no-install-recommends clang-format-18
+      - name: clang-format
+        run: |
+          find include src tools tests bench fuzz \( -name '*.cpp' -o -name '*.hpp' \) -print0 \
+            | xargs -0 clang-format-18 --dry-run -Werror
+
+  # ---------------------------------------------------------------------------
+  # Desktop: build and run every test natively.
+  build:
+    name: ${{ matrix.name }} (${{ matrix.build_type }})
+    needs: format
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux x64 GCC, os: ubuntu-24.04, profile: ci, build_type: Debug }
+          - { name: Linux x64 GCC, os: ubuntu-24.04, profile: ci, build_type: Release }
+          - { name: Linux x64 Clang, os: ubuntu-24.04, profile: linux-clang, build_type: Debug }
+          - { name: Linux x64 Clang, os: ubuntu-24.04, profile: linux-clang, build_type: Release }
+          - { name: Linux arm64 GCC, os: ubuntu-24.04-arm, profile: ci, build_type: Release }
+          - name: Linux x86 (32-bit) GCC
+            os: ubuntu-24.04
+            profile: linux-x86
+            build_type: Debug
+            setup: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-multilib g++-multilib
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Extra setup
+        if: matrix.setup
+        run: ${{ matrix.setup }}
+
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: ${{ matrix.os }}-${{ matrix.profile }}-${{ matrix.build_type }}
+
+      - name: Install dependencies
+        run: >
+          conan install . --build=missing
+          -pr:h conan/profiles/${{ matrix.profile }} -pr:b default
+          -s build_type=${{ matrix.build_type }}
+
+      - name: Configure, build and test
+        run: |
+          lower=$(echo "${{ matrix.build_type }}" | tr '[:upper:]' '[:lower:]')
+          cmake --preset "conan-$lower" -DCPPI_WARNINGS_AS_ERRORS=ON
+          cmake --build --preset "conan-$lower" --parallel
+          ctest --preset "conan-$lower" --output-on-failure --output-junit junit.xml
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.profile }}-${{ matrix.build_type }}
+          path: build/**/junit.xml
+
+  # ---------------------------------------------------------------------------
+  # Android: cross-compile every ABI; run the tests on an x86_64 emulator.
+  android:
+    name: Android ${{ matrix.abi }}
+    needs: format
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { abi: x86_64, profile: android-x86_64, run: true }
+          - { abi: arm64-v8a, profile: android-arm64, run: false }
+          - { abi: armeabi-v7a, profile: android-armv7, run: false }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: ${{ matrix.profile }}
+      - name: Build library and tests
+        run: |
+          # Ubuntu runners ship the NDK; the Android profile reads ANDROID_NDK_HOME.
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          conan build . --build=missing \
+            -pr:h conan/profiles/${{ matrix.profile }} -pr:b default -s build_type=Release
+          file build/Release/tests/cppi_tests
+      - name: Enable KVM for the emulator
+        if: matrix.run
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run tests on the emulator
+        if: matrix.run
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb push build/Release/tests/cppi_tests /data/local/tmp/cppi_tests
+            adb shell chmod 755 /data/local/tmp/cppi_tests
+            adb shell /data/local/tmp/cppi_tests --gtest_brief=1
+
+  # ---------------------------------------------------------------------------
+  # WebAssembly (Emscripten): tests and golden cases run under Node.js.
+  webassembly:
+    name: WebAssembly (Emscripten)
+    needs: format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: emscripten
+      - name: Build and test
+        run: |
+          conan install . --build=missing -pr:h conan/profiles/emscripten -pr:b default -s build_type=Release
+          cmake --preset conan-release
+          cmake --build --preset conan-release --parallel
+          # Threads need SharedArrayBuffer/pthreads builds; out of scope here.
+          ctest --preset conan-release --output-on-failure -LE threads
+
+  # ---------------------------------------------------------------------------
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    needs: format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: ubuntu-24.04-linux-clang-Debug
+      - name: Install dependencies
+        run: conan install . --build=missing -pr:h conan/profiles/linux-clang -pr:b default -s build_type=Debug
+      - name: Build and test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          cmake --preset conan-debug -DCPPI_WARNINGS_AS_ERRORS=ON "-DCPPI_SANITIZERS=address;undefined"
+          cmake --build --preset conan-debug --parallel
+          ctest --preset conan-debug --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  static-analysis:
+    name: clang-tidy
+    needs: format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: ubuntu-24.04-linux-clang-Debug
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends clang-tidy-18
+          conan install . --build=missing -pr:h conan/profiles/linux-clang -pr:b default -s build_type=Debug
+      - name: Configure (generates compile_commands.json and Version.hpp)
+        run: |
+          cmake --preset conan-debug
+          cmake --build --preset conan-debug --target cppi
+      - name: Run clang-tidy
+        run: |
+          find src tools -name '*.cpp' -print0 \
+            | xargs -0 run-clang-tidy-18 -p build/Debug -quiet -warnings-as-errors='*'
+
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: Coverage
+    needs: format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: ubuntu-24.04-ci-Debug
+      - name: Install dependencies
+        run: |
+          conan install . --build=missing -pr:h conan/profiles/ci -pr:b default -s build_type=Debug
+          python -m pip install gcovr
+      - name: Build and test with coverage
+        run: |
+          cmake --preset conan-debug -DCPPI_ENABLE_COVERAGE=ON
+          cmake --build --preset conan-debug --parallel
+          ctest --preset conan-debug --output-on-failure
+      - name: Report
+        run: |
+          mkdir -p coverage
+          # gcov sometimes reports negative branch counts (GCC bug 68080).
+          gcovr --root . --object-directory build/Debug --filter src/ --filter include/ \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
+            --txt coverage.txt --xml coverage.xml --html-details coverage/index.html \
+            --fail-under-line 85
+          { echo '### Coverage'; echo '```'; cat coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            coverage/
+
+  # ---------------------------------------------------------------------------
+  fuzz:
+    name: Fuzz (60 s)
+    needs: format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: ubuntu-24.04-linux-clang-Debug
+      - name: Install dependencies
+        run: conan install . --build=missing -pr:h conan/profiles/linux-clang -pr:b default -s build_type=Debug
+      - name: Build fuzzer
+        run: |
+          cmake --preset conan-debug -DBUILD_TESTING=OFF -DCPPI_BUILD_TOOLS=OFF -DCPPI_BUILD_FUZZERS=ON \
+            "-DCPPI_SANITIZERS=address;undefined;fuzzer-no-link"
+          cmake --build --preset conan-debug --target fuzz_compile_run
+      - name: Fuzz
+        run: |
+          mkdir -p fuzz/findings work-corpus
+          cp fuzz/corpus/* work-corpus/
+          build/Debug/fuzz/fuzz_compile_run work-corpus -max_total_time=60 -max_len=2048 -timeout=10 \
+            -artifact_prefix=fuzz/findings/
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-findings
+          path: fuzz/findings/

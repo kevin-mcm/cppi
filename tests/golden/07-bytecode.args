@@ -1,0 +1,5 @@
+--lang
+en
+--quiet
+--dump-bytecode
+examples/levels/01-first-steps.cpp

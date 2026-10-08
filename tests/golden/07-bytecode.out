@@ -1,0 +1,17 @@
+Bytecode:
+0000     3:1    CALL_HOST   harvest (0 args)
+0001     3:1    POP
+0002     4:6    PUSH_CONST  East : Direction
+0003     4:1    CALL_HOST   move (1 args)
+0004     5:1    CALL_HOST   harvest (0 args)
+0005     5:1    POP
+0006     6:6    PUSH_CONST  East : Direction
+0007     6:1    CALL_HOST   move (1 args)
+0008     7:1    CALL_HOST   harvest (0 args)
+0009     7:1    POP
+0010     7:10   HALT
+
+Result: completed
+Operations: 35 / 10000
+Hay: 3
+Position: (2, 0)

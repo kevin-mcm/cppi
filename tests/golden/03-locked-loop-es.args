@@ -1,0 +1,5 @@
+--lang
+es
+--lock
+loops
+examples/levels/03-locked-loop.cpp

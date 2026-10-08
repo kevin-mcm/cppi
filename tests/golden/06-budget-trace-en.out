@@ -1,0 +1,9 @@
+  2:1  harvest()
+  3:1  move(North)
+  4:1  harvest()
+  5:1  move(North)
+
+Result: out of operations
+Operations: 28 / 30
+Hay: 2
+Position: (0, 2)

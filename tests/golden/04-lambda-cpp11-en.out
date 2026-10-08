@@ -1,0 +1,18 @@
+Initial world:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  @ " " " "
+
+Final world:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  " " @ " "
+
+Result: completed
+Operations: 23 / 10000
+Hay: 0
+Position: (2, 0)

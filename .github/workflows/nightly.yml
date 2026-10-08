@@ -1,0 +1,47 @@
+# Nightly workflow: a long fuzzing session.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  long-fuzz:
+    name: Fuzz (30 min)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: linux-clang-Debug
+      - name: Build fuzzer
+        run: |
+          conan install . --build=missing -pr:h conan/profiles/linux-clang -pr:b default -s build_type=Debug
+          cmake --preset conan-debug -DBUILD_TESTING=OFF -DCPPI_BUILD_TOOLS=OFF -DCPPI_BUILD_FUZZERS=ON \
+            "-DCPPI_SANITIZERS=address;undefined;fuzzer-no-link"
+          cmake --build --preset conan-debug --target fuzz_compile_run
+      - name: Restore corpus
+        uses: actions/cache@v6
+        with:
+          path: work-corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+      - name: Fuzz
+        run: |
+          mkdir -p fuzz/findings work-corpus
+          cp -n fuzz/corpus/* work-corpus/ || true
+          build/Debug/fuzz/fuzz_compile_run work-corpus -max_total_time=1800 -max_len=4096 -timeout=10 \
+            -artifact_prefix=fuzz/findings/
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-findings
+          path: fuzz/findings/

@@ -1,0 +1,14 @@
+# Linux with Clang instead of the auto-detected compiler.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+include(ci)
+
+[settings]
+compiler=clang
+compiler.version=18
+compiler.libcxx=libstdc++11
+
+[conf]
+tools.build:compiler_executables={"c": "clang-18", "cpp": "clang++-18"}

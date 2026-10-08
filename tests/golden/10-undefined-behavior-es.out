@@ -1,0 +1,18 @@
+Mundo inicial:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  @ " " " "
+
+Mundo final:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  @ " " " "
+
+Resultado: detenido por un error en ejecución
+Operaciones: 99 / 10000
+Heno: 0
+Posición: (0, 0)

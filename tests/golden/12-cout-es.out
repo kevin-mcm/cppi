@@ -1,0 +1,21 @@
+Mundo inicial:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  @ " " " "
+
+Salida:
+Hello, farmer! Harvested: 3
+
+Mundo final:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  . . . @ "
+
+Resultado: completado
+Operaciones: 83 / 10000
+Heno: 3
+Posición: (3, 0)

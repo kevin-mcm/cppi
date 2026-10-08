@@ -1,0 +1,9 @@
+# 32-bit x86 Linux (needs g++-multilib). Catches size_t/pointer-width bugs
+# that would otherwise first appear on armeabi-v7a or WebAssembly.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+include(ci)
+
+[settings]
+arch=x86

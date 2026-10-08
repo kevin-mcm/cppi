@@ -1,0 +1,4 @@
+--lang
+en
+--quiet
+examples/levels/10-classes.cpp

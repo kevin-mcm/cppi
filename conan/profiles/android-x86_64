@@ -1,0 +1,8 @@
+# Android emulator on CI (x86_64): this is where the tests run.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+include(android)
+
+[settings]
+arch=x86_64

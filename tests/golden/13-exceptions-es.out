@@ -1,0 +1,21 @@
+Mundo inicial:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " " " "
+  @ " " " "
+
+Salida:
+problem: a row cannot be negative
+
+Mundo final:
+  " " " " "
+  " " " " "
+  " " " " "
+  " " @ " "
+  . . " " "
+
+Resultado: completado
+Operaciones: 95 / 10000
+Heno: 2
+Posición: (2, 1)

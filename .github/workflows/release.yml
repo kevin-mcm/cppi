@@ -1,0 +1,117 @@
+# Release workflow: publishes a release when a version tag is pushed.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+name: Release
+
+# Pushing a tag like v0.2.0 publishes:
+#   1. the Conan package to the team's Conan remote (if configured), and
+#   2. a GitHub Release with cppi-run binaries for Linux (x86_64 and arm64).
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - id: read
+        run: |
+          python -m pip install "conan>=2.4,<3"
+          version=$(conan inspect . --format=json | python -c "import json,sys; print(json.load(sys.stdin)['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match project version $version (CMakeLists.txt)"
+            exit 1
+          fi
+
+  cli:
+    name: cppi-run (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { target: linux-x86_64, os: ubuntu-24.04 }
+          - { target: linux-arm64, os: ubuntu-24.04-arm }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: release-${{ matrix.target }}
+      - name: Build and test
+        run: |
+          conan install . --build=missing -pr:h conan/profiles/ci -pr:b default -s build_type=Release
+          cmake --preset conan-release
+          cmake --build --preset conan-release --parallel
+          ctest --preset conan-release --output-on-failure
+          cmake --install build/Release --prefix stage --config Release || cmake --install build --prefix stage --config Release
+      - name: Package
+        run: |
+          name="cppi-run-${{ needs.version.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$name"
+          cp stage/bin/cppi-run* "$name/"
+          cp LICENSE README.md "$name/"
+          cp -r examples "$name/"
+          tar czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.target }}
+          path: cppi-run-*.*
+
+  conan-package:
+    name: Conan package
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      CONAN_REMOTE_URL: ${{ secrets.CONAN_REMOTE_URL }}
+      CONAN_LOGIN_USERNAME: ${{ secrets.CONAN_LOGIN_USERNAME }}
+      CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: release-package
+      - name: Create package (runs test_package)
+        run: conan create . --build=missing -pr:h conan/profiles/ci -pr:b default -s build_type=Release
+      - name: Upload recipe and binaries
+        run: |
+          if [[ -z "$CONAN_REMOTE_URL" ]]; then
+            echo "::notice::CONAN_REMOTE_URL is not set; skipping upload (see docs/ci-cd.md)."
+            exit 0
+          fi
+          conan remote add cppi-remote "$CONAN_REMOTE_URL" --force
+          conan remote login cppi-remote "$CONAN_LOGIN_USERNAME" -p "$CONAN_PASSWORD"
+          conan upload "cppi/${{ needs.version.outputs.version }}" -r cppi-remote --confirm
+
+  github-release:
+    name: GitHub Release
+    needs: [version, cli, conan-package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: cppi-run-*
+          generate_release_notes: true
+          prerelease: ${{ startsWith(needs.version.outputs.version, '0.') }}

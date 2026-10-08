@@ -1,0 +1,30 @@
+# Files git never tracks: build trees, editor and tool output.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+# Build trees (Conan + CMake)
+/build/
+/build-*/
+CMakeUserPresets.json
+compile_commands.json
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Python (conanfile)
+__pycache__/
+
+# Fuzzing artifacts
+crash-*
+leak-*
+timeout-*
+oom-*
+fuzz/findings/
+
+# Conan test_package build trees
+/test_package/build/
+/test_package/CMakeUserPresets.json

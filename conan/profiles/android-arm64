@@ -1,0 +1,8 @@
+# Android phones and tablets (arm64-v8a).
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+include(android)
+
+[settings]
+arch=armv8

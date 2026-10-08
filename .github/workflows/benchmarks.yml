@@ -1,0 +1,85 @@
+# Benchmarks workflow: runs the benchmarks and flags pull requests that
+# make the interpreter markedly slower.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+name: Benchmarks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write        # push history to the gh-pages branch (master only)
+  pull-requests: write   # comment on PRs when a benchmark regresses
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: bench-Release
+      - name: Build
+        run: |
+          conan install . --build=missing -pr:h conan/profiles/ci -pr:b default -s build_type=Release \
+            -o "&:with_benchmarks=True" -o "&:with_tools=False" -c tools.build:skip_test=True
+          cmake --preset conan-release
+          cmake --build --preset conan-release --parallel --target cppi_bench
+      - name: Run
+        run: >
+          build/Release/bench/cppi_bench
+          --benchmark_format=json --benchmark_out=bench.json
+          --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
+          --benchmark_min_time=0.2s
+      # Compare times only: the stddev and cv aggregates measure the runner's
+      # noise, which can double from one run to the next without any change.
+      - name: Keep mean and median
+        run: |
+          jq '.benchmarks |= map(select(.aggregate_name == "mean" or .aggregate_name == "median"))' \
+            bench.json > bench-times.json
+          jq -r '.benchmarks[].name' bench-times.json
+      # The history lives in the gh-pages branch. The first run on master creates
+      # it; until then pull requests have no baseline to compare against.
+      - name: Check benchmark history
+        id: history
+        env:
+          IS_MASTER: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$IS_MASTER" = "true" ]; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git switch --orphan gh-pages
+            git commit --allow-empty -m "Start benchmark history"
+            git push origin gh-pages
+            git switch -
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No benchmark history yet (gh-pages is created by the first run on master): skipping the comparison."
+          fi
+      - name: Compare with history
+        if: steps.history.outputs.available == 'true'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: cppi
+          tool: googlecpp
+          output-file-path: bench-times.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          benchmark-data-dir-path: dev/bench
+          # Only master updates the stored baseline; PRs are compared against it.
+          auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: true
+          summary-always: true

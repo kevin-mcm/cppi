@@ -1,0 +1,8 @@
+# How git treats files: line endings and binaries.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+# Normalize line endings; golden files must stay LF on every platform.
+* text=auto eol=lf
+*.png binary

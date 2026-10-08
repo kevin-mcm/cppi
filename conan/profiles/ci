@@ -1,0 +1,8 @@
+# Base CI profile: the auto-detected compiler plus C++20.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+include(default)
+
+[settings]
+compiler.cppstd=20

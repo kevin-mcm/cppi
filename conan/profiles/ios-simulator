@@ -1,0 +1,16 @@
+# iOS Simulator on Apple Silicon. CI runs the tests inside a booted
+# simulator through `xcrun simctl spawn` (see .github/workflows/ci.yml).
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+include(default)
+
+[settings]
+os=iOS
+os.version=15.0
+os.sdk=iphonesimulator
+arch=armv8
+compiler.cppstd=20
+
+[options]
+cppi/*:with_tools=False

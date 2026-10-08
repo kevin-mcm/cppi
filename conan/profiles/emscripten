@@ -1,0 +1,24 @@
+# WebAssembly with Emscripten (e.g. a Godot web export). The emsdk tool
+# requirement installs the compiler; tests run under Node.js.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+include(default)
+
+[settings]
+os=Emscripten
+arch=wasm
+compiler=clang
+compiler.version=20
+compiler.libcxx=libc++
+compiler.cppstd=20
+
+[tool_requires]
+emsdk/3.1.73
+
+[conf]
+# Emscripten disables exception catching by default; cppi relies on it
+# to contain exceptions thrown by host functions.
+tools.build:cflags=["-fexceptions"]
+tools.build:cxxflags=["-fexceptions"]
+tools.build:exelinkflags=["-fexceptions"]

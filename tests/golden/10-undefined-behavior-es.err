@@ -1,0 +1,3 @@
+examples/levels/09-undefined-behavior.cpp:4:5: error E0503: Comportamiento indefinido: el índice 5 está fuera de rango (tamaño 5)
+  4 |     rows[i] = i * 10;
+    |     ^~~~~~~

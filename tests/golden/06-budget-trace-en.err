@@ -1,0 +1,3 @@
+examples/levels/06-budget.cpp:6:1: error E0400: Out of operations: the budget of 30 was used up
+  6 | harvest();
+    | ^~~~~~~~~

@@ -1,0 +1,15 @@
+examples/levels/05-name-errors.cpp:2:1: error E0200: There is no function called 'harvset'; did you mean 'harvest'?
+  2 | harvset();
+    | ^~~~~~~
+examples/levels/05-name-errors.cpp:3:6: error E0201: 'Est' has not been declared; did you mean 'East'?
+  3 | move(Est);
+    |      ^~~
+examples/levels/05-name-errors.cpp:4:6: error E0203: Argument 1 of 'move' must be 'Direction', not 'int'
+  4 | move(3);
+    |      ^
+examples/levels/05-name-errors.cpp:5:1: error E0202: 'move' takes 1 argument(s), but 0 were given
+  5 | move();
+    | ^~~~~~
+examples/levels/05-name-errors.cpp:6:1: warning E0206: 'harvest' is a function: add () to call it
+  6 | harvest;
+    | ^~~~~~~

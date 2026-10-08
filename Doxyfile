@@ -1,0 +1,29 @@
+# Doxygen configuration for cppi's API documentation.
+# Run `doxygen` from the repository root; HTML goes to build/doxygen/html.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+
+PROJECT_NAME           = cppi
+PROJECT_BRIEF          = "Embeddable interpreter for a subset of C++ that unlocks in stages"
+OUTPUT_DIRECTORY       = build/doxygen
+INPUT                  = include src tools README.md docs/architecture.md
+FILE_PATTERNS          = *.hpp *.cpp *.md
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+STRIP_FROM_PATH        = .
+STRIP_FROM_INC_PATH    = include
+JAVADOC_AUTOBRIEF      = YES
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = NO
+BUILTIN_STL_SUPPORT    = YES
+MARKDOWN_SUPPORT       = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = NO
+QUIET                  = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+SOURCE_BROWSER         = YES
+HAVE_DOT               = NO

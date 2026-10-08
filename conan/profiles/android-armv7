@@ -1,0 +1,8 @@
+# Older Android devices (armeabi-v7a, 32-bit).
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-08
+include(android)
+
+[settings]
+arch=armv7
