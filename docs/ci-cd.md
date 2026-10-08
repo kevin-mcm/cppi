@@ -7,7 +7,8 @@
 | `ci.yml` | push to `master`, every PR | Formatting; build and tests on every platform (table below); ASan + UBSan; clang-tidy; coverage (minimum 85%); 60 s of fuzzing. |
 | `benchmarks.yml` | push to `master`, every PR | Runs the benchmarks and compares them with the history. Fails the PR and comments on it if anything regresses by more than 50%. On `master`, stores the result in the `gh-pages` branch. |
 | `nightly.yml` | every night | 30 minutes of fuzzing with a persistent corpus. |
-| `release.yml` | on pushing a `vX.Y.Z` tag | Checks the version, publishes the Conan package, and creates a GitHub Release with `cppi-run` binaries. |
+| `package.yml` | called by `release.yml`, or by hand | Builds the Conan bundles for every target and the `cppi-run` binaries, and keeps them as workflow artifacts (see [Packages](#packages)). |
+| `release.yml` | on pushing a `vX.Y.Z` tag | Checks the version, runs `package.yml`, creates a GitHub Release with its files, and uploads the Conan package to the remote if one is configured. |
 
 ### Platform matrix
 
@@ -55,7 +56,51 @@ In GitHub (*Settings → Branches → Branch protection* for `master`), make the
    git tag v0.2.0
    git push origin v0.2.0
    ```
-4. `release.yml` does the rest. If the tag does not match the project version, it fails without publishing anything.
+4. `release.yml` does the rest. If the tag does not match the project version, it fails without publishing anything. The release text is the version's section of `CHANGELOG.md` followed by GitHub's generated notes; `0.x` versions are marked as pre-releases.
+
+## Packages
+
+`package.yml` builds, for each target, the Conan package the way a game consumes it (static, `with_tools=False`) and saves it with `conan cache save`. A bundle holds cppi's recipe and sources, its binaries for that target, and the binaries of tree-sitter and tree-sitter-cpp, so `conan cache restore` makes `cppi/<version>` available without a Conan remote. The recipe and sources come along, so a configuration without binaries in the bundle (another compiler version, another build type) builds from them with `--build=missing`.
+
+| File | Contents |
+|---|---|
+| `cppi-<version>-conan-all.tgz` | Every target below in one bundle |
+| `cppi-<version>-conan-<target>.tgz` | One target |
+| `cppi-run-<version>-linux-x86_64.tar.gz`, `…-linux-arm64.tar.gz` | The console tool, with the examples |
+| `SHA256SUMS` | Checksums of every file |
+
+| Target | Profile | Build type |
+|---|---|---|
+| `linux-x86_64-release`, `linux-x86_64-debug` | `ci` (GCC 13 of `ubuntu-24.04`) | Release, Debug |
+| `linux-arm64-release` | `ci` on `ubuntu-24.04-arm` | Release |
+| `android-arm64-release`, `android-armv7-release`, `android-x86_64-release` | `android-*` | Release |
+| `web-godot-release` | `emscripten-godot` (emsdk 4.0.10, `-fPIC -fwasm-exceptions`, for a Godot 4.5 web export with GDExtension) | Release |
+
+Conan picks a binary by its settings and options (the package ID); compiler flags are not part of it. `emscripten-godot` must therefore stay equal to the game's web profile (`conan/profiles/web` in cppi-farm): a binary built with another exception model would be found and linked without any warning. When Godot moves to another emsdk, change both profiles and `emsdk` in `package.yml`.
+
+To build a bundle locally (the same script the workflow runs):
+
+```bash
+tools/conan-bundle.sh conan/profiles/ci Release dist/cppi-linux-x86_64-release.tgz
+```
+
+### Using the packages from a game
+
+The repository is private, so downloads need a GitHub token that can read it: `gh auth login` on a workstation, and in the game's workflows a secret with a fine-grained token (*Contents: read* on `cppi`) passed as `GH_TOKEN`.
+
+```bash
+gh release download v0.1.0 --repo kevin-mcm/cppi --pattern 'cppi-*-conan-all.tgz' --dir build/cppi
+conan cache restore build/cppi/cppi-0.1.0-conan-all.tgz
+conan install . --build=missing ...   # finds cppi/0.1.0 in the cache
+```
+
+To try a cppi branch in the game before a release, run *Package* on that branch (Actions → Package → Run workflow, or `gh workflow run package.yml --repo kevin-mcm/cppi --ref <branch>`) and download its artifact:
+
+```bash
+gh run download <run-id> --repo kevin-mcm/cppi --name cppi-0.1.0 --dir build/cppi
+```
+
+The version does not change between releases, so a restored bundle replaces the recipe revision of `cppi/<version>` that was in the cache; restore the release's bundle to go back. Artifacts are kept for 90 days.
 
 ## Deploying the Conan package
 
@@ -73,7 +118,7 @@ Configure these repository *secrets*:
 | `CONAN_LOGIN_USERNAME` | deploy user or token |
 | `CONAN_PASSWORD` | password or token |
 
-Without `CONAN_REMOTE_URL`, the release is still created and the upload step is skipped with a warning.
+Without `CONAN_REMOTE_URL`, the release is still created and the upload step is skipped with a notice. With it, the recipe and every target's binaries in `cppi-<version>-conan-all.tgz` are uploaded.
 
 The game consumes the package by adding that remote:
 

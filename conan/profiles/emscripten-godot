@@ -1,0 +1,28 @@
+# WebAssembly for a Godot web export with GDExtension (cppi-farm's
+# conan/profiles/web): a static library built as a side module would be, with
+# position-independent code and wasm-native exceptions, the model of
+# godot-cpp's -sSUPPORT_LONGJMP=wasm. Keep it equal to the game's profile so
+# its packages are found already built. Needs emsdk 4.0.10 (the version of
+# Godot 4.5's web templates) activated: source <emsdk>/emsdk_env.sh
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-09
+[settings]
+os=Emscripten
+arch=wasm
+compiler=clang
+compiler.version=21
+compiler.libcxx=libc++
+compiler.cppstd=20
+
+[options]
+*:shared=False
+cppi/*:with_tools=False
+
+[conf]
+tools.cmake.cmaketoolchain:user_toolchain=["{{ os.getenv('EMSDK') }}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"]
+tools.build:compiler_executables={"c": "emcc", "cpp": "em++"}
+tools.build:cflags=["-fPIC", "-fwasm-exceptions"]
+tools.build:cxxflags=["-fPIC", "-fwasm-exceptions"]
+tools.build:exelinkflags=["-fwasm-exceptions"]
+tools.build:sharedlinkflags=["-fwasm-exceptions"]

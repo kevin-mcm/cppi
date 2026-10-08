@@ -1,0 +1,181 @@
+# Package workflow: builds the Conan bundles and cppi-run binaries that
+# releases publish.
+#
+# Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
+# Date:   2026-10-09
+
+name: Package
+
+# Builds what a game needs to use cppi without building it, and keeps it as
+# workflow artifacts:
+#
+#   cppi-<version>-conan-<target>.tgz  the Conan package for one target, with
+#                                      its recipe and sources and the binaries
+#                                      of tree-sitter (`conan cache restore`)
+#   cppi-<version>-conan-all.tgz       every target in one bundle
+#   cppi-run-<version>-<target>.tar.gz the console tool
+#   SHA256SUMS
+#
+# release.yml calls it for every vX.Y.Z tag and publishes the files in the
+# GitHub Release. Run it by hand (Actions → Package → Run workflow) to try a
+# branch in the game before tagging it; see docs/ci-cd.md.
+
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: Project version (CMakeLists.txt)
+        value: ${{ jobs.version.outputs.version }}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Read version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: read
+        run: |
+          version=$(sed -n 's/^ *VERSION \([0-9][0-9.]*\)$/\1/p' CMakeLists.txt | head -n1)
+          [[ -n "$version" ]] || { echo "::error::No VERSION in CMakeLists.txt"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # One Conan bundle per target, built as the game consumes cppi: static,
+  # without cppi-run. Native targets run test_package's consumer.
+  conan:
+    name: Conan ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x86_64-release, os: ubuntu-24.04, profile: ci, build_type: Release }
+          - { target: linux-x86_64-debug, os: ubuntu-24.04, profile: ci, build_type: Debug }
+          - { target: linux-arm64-release, os: ubuntu-24.04-arm, profile: ci, build_type: Release }
+          - { target: android-arm64-release, os: ubuntu-24.04, profile: android-arm64, build_type: Release }
+          - { target: android-armv7-release, os: ubuntu-24.04, profile: android-armv7, build_type: Release }
+          - { target: android-x86_64-release, os: ubuntu-24.04, profile: android-x86_64, build_type: Release }
+          - { target: web-godot-release, os: ubuntu-24.04, profile: emscripten-godot, build_type: Release, emsdk: "4.0.10" }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      # Packages built with another NDK do not link (libc++ symbols differ),
+      # so the cache is per NDK, as in ci.yml.
+      - name: NDK version
+        id: ndk
+        run: echo "version=$(basename "${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-none}}")" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: package-${{ matrix.target }}-ndk${{ steps.ndk.outputs.version }}
+
+      - name: Use the runner's Android NDK
+        if: startsWith(matrix.profile, 'android')
+        run: echo "ANDROID_NDK_HOME=${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}" >> "$GITHUB_ENV"
+
+      - name: Install emsdk ${{ matrix.emsdk }}
+        if: matrix.emsdk
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "${{ matrix.emsdk }}"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "${{ matrix.emsdk }}"
+          echo "EMSDK=$RUNNER_TEMP/emsdk" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+
+      - name: Build and bundle
+        run: >
+          tools/conan-bundle.sh conan/profiles/${{ matrix.profile }} ${{ matrix.build_type }}
+          "dist/cppi-${{ needs.version.outputs.version }}-conan-${{ matrix.target }}.tgz"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: conan-${{ matrix.target }}
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  cli:
+    name: cppi-run ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { target: linux-x86_64, os: ubuntu-24.04 }
+          - { target: linux-arm64, os: ubuntu-24.04-arm }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-conan
+        with:
+          cache-key: release-${{ matrix.target }}
+      - name: Build and test
+        run: |
+          conan install . --build=missing -pr:h conan/profiles/ci -pr:b default -s build_type=Release
+          cmake --preset conan-release
+          cmake --build --preset conan-release --parallel
+          ctest --preset conan-release --output-on-failure
+          cmake --install build/Release --prefix stage --config Release
+      - name: Package
+        run: |
+          name="cppi-run-${{ needs.version.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$name"
+          cp stage/bin/cppi-run* "$name/"
+          cp LICENSE README.md "$name/"
+          cp -r examples "$name/"
+          tar czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.target }}
+          path: cppi-run-*.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Every Conan target in one bundle, and the checksums of every file.
+  bundle:
+    name: Bundle
+    needs: [version, conan, cli]
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Conan
+        run: python -m pip install "conan>=2.4,<3"
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Merge the Conan bundles
+        env:
+          CONAN_HOME: ${{ runner.temp }}/conan-merge
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          for bundle in dist/cppi-*-conan-*.tgz; do
+            conan cache restore "$bundle"
+          done
+          conan list "*:*" --format=compact
+          conan cache save "*/*:*" --file="dist/cppi-$VERSION-conan-all.tgz"
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cppi-${{ needs.version.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
