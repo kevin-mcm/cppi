@@ -102,9 +102,14 @@ jobs:
           - { abi: armeabi-v7a, profile: android-armv7, run: false }
     steps:
       - uses: actions/checkout@v7
+      # Runners do not all ship the same NDK: packages built with another one
+      # do not link (libc++ symbols differ), so the cache is per NDK.
+      - name: NDK version
+        id: ndk
+        run: echo "version=$(basename "${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-none}}")" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/setup-conan
         with:
-          cache-key: ${{ matrix.profile }}
+          cache-key: ${{ matrix.profile }}-ndk${{ steps.ndk.outputs.version }}
       - name: Build library and tests
         run: |
           # Ubuntu runners ship the NDK; the Android profile reads ANDROID_NDK_HOME.
