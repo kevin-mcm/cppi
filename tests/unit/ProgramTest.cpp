@@ -1,3 +1,4 @@
+#include "support/ProgramRunner.hpp"
 #include "support/RecordingHost.hpp"
 
 #include "codegen/OpCode.hpp"
@@ -29,7 +30,7 @@ TEST(Program, ProgramsCanBeDisassembled) {
 }
 
 TEST(Program, TheListingNamesFunctionsTargetsAndKinds) {
-    Interpreter interpreter(HostRegistry{}, Options{Standard::Cpp17});
+    Interpreter interpreter(HostRegistry{}, cppi_test::standard(Standard::Cpp17));
     auto result = interpreter.compile(R"(
         struct Shape { virtual int area() const { return 0; } };
         struct Square : Shape { int side = 2; int area() const override { return side * side; } };

@@ -1,6 +1,7 @@
 // Phase 4 teaching tools: breakpoints, stepping, variable inspection and the
 // program cache.
 
+#include "support/ProgramRunner.hpp"
 #include "support/RecordingHost.hpp"
 
 #include <gtest/gtest.h>
@@ -124,7 +125,7 @@ TEST(Debugger, PointersAreShownByWhatTheyPointTo) {
 
 TEST(Debugger, ScalarsAreShownAsThePlayerWroteThem) {
     cppi_test::RecordingHost recorder;
-    Interpreter interpreter(recorder.make_registry(), Options{Standard::Cpp11});
+    Interpreter interpreter(recorder.make_registry(), cppi_test::standard(Standard::Cpp11));
     const char* source =
         "enum Color { Red, Green };\n"
         "struct Point { int x; int y; };\n"
