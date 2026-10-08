@@ -240,6 +240,51 @@ TEST(Completeness, ConstexprFunctionsRunAtCompileTime) {
               "case 9 25 55 4\n");
 }
 
+TEST(Completeness, ConstexprFunctionsHandleEveryScalarTypeArraysAndSwitch) {
+    EXPECT_EQ(printed(R"(
+        constexpr long grow(long n) { long r = 1; r *= n; r += 2L; return r; }
+        constexpr double halve(double x) { double r = x; r /= 2; r -= 0.25; ++r; return r; }
+        constexpr unsigned wrap(unsigned u) { unsigned r = u; r -= 1u; r++; return r; }
+        constexpr unsigned long long triple(unsigned long long u) { u *= 3ULL; return u; }
+        constexpr int narrow(int x) { char c = 0; c += x; short s = 1; s++; return c + s; }
+        constexpr int mixed(int x) { int r = x; r += 1.5; return r; }
+        constexpr int table(int i) {
+            int a[4] = {};
+            int b[2];
+            b[0] = 1; b[1] = 2;
+            for (int k = 0; k < 4; ++k) a[k] = k * k;
+            return a[i] + b[1];
+        }
+        constexpr int pick(int v) {
+            int r = 0;
+            switch (v) { case 1: r += 1; case 2: r += 10; break; case 3: return 30; default: r = -1; }
+            return r;
+        }
+        constexpr int countdown(int n) {
+            int steps = 0;
+            do { --n; steps++; if (steps > 100) break; } while (n > 0);
+            for (int i = 0, j = 10; i < j; ++i, --j) steps++;
+            return steps;
+        }
+        static_assert(grow(5) == 7, "long");
+        static_assert(halve(5.0) == 3.25, "double");
+        static_assert(wrap(0u) == 0u, "unsigned wraps around");
+        static_assert(triple(4ULL) == 12ULL, "unsigned long long");
+        static_assert(narrow(5) == 7, "char and short");
+        static_assert(mixed(2) == 3, "int += double");
+        static_assert(table(3) == 11, "arrays");
+        static_assert(pick(1) == 11 && pick(2) == 10 && pick(3) == 30 && pick(9) == -1, "switch");
+        static_assert(countdown(4) == 9, "do-while, break and comma");
+        std::cout << "ok" << std::endl;
+    )",
+                      cpp17),
+              "ok\n");
+    EXPECT_EQ(compile_error("constexpr int at(int n) { int a[2] = {}; return a[n]; } int x[at(5)];", cpp17),
+              DiagCode::NotConstant);
+    EXPECT_EQ(compile_error("constexpr int unset() { int u; return u; } int x[unset()];", cpp17),
+              DiagCode::NotConstant);
+}
+
 TEST(Completeness, ConstexprEvaluationStopsAtWhatIsNotConstant) {
     // Not constexpr, or not constant for these arguments: an array size needs a constant.
     EXPECT_EQ(compile_error("int f(int x) { return x; } int a[f(2)];"), DiagCode::NotConstant);

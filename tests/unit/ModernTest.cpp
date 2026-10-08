@@ -205,6 +205,47 @@ TEST(Modern, LambdasCaptureByValueAndByReference) {
               DiagCode::UnknownIdentifier);  // not captured
 }
 
+TEST(Modern, DefaultCapturesFindTheVariablesUsedAnywhereInTheBody) {
+    // Each local is used in one kind of statement or expression only, so
+    // missing any of them leaves it uncaptured (an unknown identifier).
+    const char* program = R"(
+        #include <vector>
+        struct Point { int x; int y; };
+        void run() {
+            int a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, k = 9, n = 3;
+            int arr[3] = {10, 20, 30};
+            Point p = {4, 5};
+            std::vector<int> v;
+            v.push_back(1); v.push_back(2); v.push_back(3);
+            int* q = &a;
+            auto by_value = [=]() {
+                int sum = -a + (b > 0 ? c : d);
+                if (int t = e) { sum += t; } else { sum -= 1; }
+                int i = 0;
+                while (i < n) { ++i; }
+                do { sum += v[1]; } while (false);
+                for (int j = 0; j < f; j++) { sum += 1; }
+                for (int x : v) { sum += x; }
+                switch (g) { case 7: sum += p.x; break; default: break; }
+                try { if (h < 0) throw h; } catch (int) { sum = 0; }
+                sum += static_cast<int>(sizeof(k)) + *q;
+                int* heap = new int(k);
+                sum += *heap;
+                delete heap;
+                auto inner = [&, i]() { return i + sum; };
+                return inner();
+            };
+            int total = 0;
+            auto by_reference = [&]() { for (int x : v) { total += x * k; } total += arr[1]; };
+            by_reference();
+            take_int(by_value());
+            take_int(total);
+        }
+        run();
+    )";
+    EXPECT_TRUE((output(program, cpp17) == Calls{"take_int(42)", "take_int(74)"}));
+}
+
 TEST(Modern, StructuredBindings) {
     const char* program = R"(
         struct Point { int x; int y; };

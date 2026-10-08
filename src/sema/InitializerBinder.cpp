@@ -504,12 +504,9 @@ bool InitializerBinder::trivial_default_initialization(TypeRef type) const {
             return false;
         }
     }
-    for (const FieldInfo& field : info.fields) {
-        if (field.default_init != nullptr || !trivial_default_initialization(field.type)) {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(info.fields, [&](const FieldInfo& field) {
+        return field.default_init == nullptr && trivial_default_initialization(field.type);
+    });
 }
 
 bool InitializerBinder::needs_destruction(TypeRef type) const {

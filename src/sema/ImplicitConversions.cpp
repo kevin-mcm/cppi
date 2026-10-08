@@ -224,6 +224,10 @@ BExprPtr ImplicitConversions::runtime_arithmetic(BExprPtr expr, TypeRef to) cons
         return wrap(std::move(expr), fk == TypeKind::Double ? Conv::DoubleToBool : Conv::IntToBool, to);
     }
     if (tk == TypeKind::Double) {
+        if (fk == TypeKind::Double) {
+            expr->type = to;  // already a double (a compound assignment's target)
+            return expr;
+        }
         return wrap(std::move(expr), fk == TypeKind::ULong ? Conv::ULongToDouble : Conv::IntToDouble, to);
     }
     if (fk == TypeKind::Double) {
