@@ -21,7 +21,22 @@ permissions:
   pull-requests: write   # comment on PRs when a benchmark regresses
 
 jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.check.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+      - id: check
+        uses: ./.github/actions/code-changed
+
+  # A skipped job still reports its check as passed.
   benchmark:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

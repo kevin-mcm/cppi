@@ -1,0 +1,34 @@
+name: Code changed
+description: >
+  Tell whether a run has to build. Pull requests that only touch
+  documentation (docs/, Markdown files, LICENSE) do not; pushes and manual
+  runs always do.
+
+outputs:
+  code:
+    description: "'true' when the run has to build and test, 'false' otherwise."
+    value: ${{ steps.check.outputs.code }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EVENT: ${{ github.event_name }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        # When the file list cannot be read (for example, a diff too large for
+        # the API), build anyway.
+        if [[ "$EVENT" != pull_request ]] || ! files=$(gh pr diff "$PR" --name-only -R "$REPO"); then
+          echo "code=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if grep -qvE '^(docs/.*|.*\.md|LICENSE)$' <<< "$files"; then
+          echo "code=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "code=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Only documentation changed: skipping the build."
+        fi
