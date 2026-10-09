@@ -4,6 +4,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
+### Fixed
+- A class that implements every pure virtual function of its base can be created, including with its own constructor, a default member initializer, or when passed by value (`struct D : B { int f() override { return 1; } }; D d;`), instead of failing with E0225 `abstract-class` for the base. Bases with constructors were never affected.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added
@@ -55,7 +60,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - `new T(other)` for classes without constructors.
 - String literals are written into static storage before the program starts, with no instructions (stepping starts at the player's first line).
 - CI: `clang-format` 18 is the reference version; the benchmark workflow creates the `gh-pages` history branch on the first run on `master`.
-- A class that implements every pure virtual function of its base can be created, including with its own constructor, a default member initializer, or when passed by value (`struct D : B { int f() override { return 1; } }; D d;`), instead of failing with E0225 `abstract-class` for the base. Bases with constructors were never affected.
 
 ## [0.1.0] - 2026-10-01
 
