@@ -153,6 +153,8 @@ public:
     [[nodiscard]] static Diagnostic exception_during_unwind(SourceRange range, std::string_view type);
     /// DiagCode::NoActiveException (E0406); args: none (`throw;` outside a handler).
     [[nodiscard]] static Diagnostic no_active_exception(SourceRange range);
+    /// DiagCode::InternalError (E0407); args: what (a bug in cppi, not in the program).
+    [[nodiscard]] static Diagnostic internal_error(SourceRange range, std::string_view what);
     /// DiagCode::ConstraintsNotSatisfied (E0238); args: function, [constraint] (C++20 concepts).
     [[nodiscard]] static Diagnostic constraints_not_satisfied(SourceRange range, std::string_view function,
                                                               std::optional<std::string> constraint);

@@ -319,6 +319,10 @@ Diagnostic DiagnosticFactory::no_active_exception(SourceRange range) {
     return make(DiagCode::NoActiveException, range);
 }
 
+Diagnostic DiagnosticFactory::internal_error(SourceRange range, std::string_view what) {
+    return make(DiagCode::InternalError, range, {{"what", std::string(what)}});
+}
+
 Diagnostic DiagnosticFactory::undefined_behavior(DiagCode code, SourceRange range, std::vector<DiagArg> args) {
     return make(code, range, std::move(args));
 }

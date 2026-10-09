@@ -67,6 +67,7 @@ std::string_view diag_key(DiagCode code) noexcept {
         case DiagCode::UncaughtException: return "uncaught-exception";
         case DiagCode::ExceptionDuringUnwind: return "exception-during-unwind";
         case DiagCode::NoActiveException: return "no-active-exception";
+        case DiagCode::InternalError: return "internal-error";
         case DiagCode::DivisionByZero: return "division-by-zero";
         case DiagCode::IntegerOverflow: return "integer-overflow";
         case DiagCode::UninitializedRead: return "uninitialized-read";

@@ -69,6 +69,7 @@ constexpr MessageEntry kDiagnostics[] = {
     {"uncaught-exception", "uncaught exception of type '{type}'[: {what}]"},
     {"exception-during-unwind", "an exception of type '{type}' was thrown while another one was being handled"},
     {"no-active-exception", "'throw;' with no exception being handled"},
+    {"internal-error", "internal interpreter error ({what}); this is a bug in cppi, not in your program"},
     {"division-by-zero", "undefined behavior: division by zero"},
     {"integer-overflow", "undefined behavior: the result does not fit in '{type}'"},
     {"uninitialized-read", "undefined behavior: reading a variable that has no value yet[ ('{name}')]"},

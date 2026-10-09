@@ -105,6 +105,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | E0404 | `uncaught-exception` | `type`, `[what]` | An exception nobody caught; `what` is the message of a `std::exception`. Reported at the `throw`. |
 | E0405 | `exception-during-unwind` | `type` | An exception was thrown while another one was still unwinding (e.g. from a destructor). |
 | E0406 | `no-active-exception` | — | `throw;` with no exception being handled. |
+| E0407 | `internal-error` | `what` | A bug in cppi, not in the program (e.g. `operand stack underflow`): the run stops instead of misbehaving. Please report it. |
 
 ## 5xx · Undefined behavior
 

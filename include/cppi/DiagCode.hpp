@@ -78,6 +78,7 @@ enum class DiagCode : std::uint16_t {
     UncaughtException = 404,      ///< args: type, [what] (std::exception's message)
     ExceptionDuringUnwind = 405,  ///< args: type (thrown while another exception was unwinding)
     NoActiveException = 406,      ///< args: none (`throw;` outside a handler)
+    InternalError = 407,          ///< args: what (a bug in cppi, not in the program)
     // Undefined behavior ----------------------------------------------------
     DivisionByZero = 500,     ///< args: none
     IntegerOverflow = 501,    ///< args: type

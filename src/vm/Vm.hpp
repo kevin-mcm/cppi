@@ -151,8 +151,23 @@ private:
     /// `a <op> b` for a comparison opcode and an operand kind (argc of Eq...Ge).
     [[nodiscard]] static bool compare_values(OpCode op, std::uint16_t kind, std::int64_t a, std::int64_t b) noexcept;
 
-    /// Pops the top of the operand stack.
-    [[nodiscard]] std::int64_t pop() noexcept {
+    /// True if the operand stack holds at least `count` values; otherwise the
+    /// run stops with an internal error (a code generation bug) instead of
+    /// reading past the stack.
+    [[nodiscard]] bool has_operands(std::size_t count) {
+        if (stack_.size() >= count) [[likely]] {
+            return true;
+        }
+        stack_underflow();
+        return false;
+    }
+    /// Stops the run with E0407 (reported once).
+    void stack_underflow();
+    /// Pops the top of the operand stack (0 after an underflow, which stops the run).
+    [[nodiscard]] std::int64_t pop() {
+        if (!has_operands(1)) [[unlikely]] {
+            return 0;
+        }
         const std::int64_t v = stack_.back();
         stack_.pop_back();
         return v;
