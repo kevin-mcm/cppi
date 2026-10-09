@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791464474161,
+  "lastUpdate": 1791537780832,
   "repoUrl": "https://github.com/kevin-mcm/cppi",
   "entries": {
     "cppi": [
@@ -576,6 +576,198 @@ window.BENCHMARK_DATA = {
             "value": 171.5028387681188,
             "unit": "us/iter",
             "extra": "iterations: 5\ncpu: 171.48591666666817 us\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "kevincardenasmiranda9@gmail.com",
+            "name": "kevin-mcm",
+            "username": "kevin-mcm"
+          },
+          "committer": {
+            "email": "kevincardenasmiranda9@gmail.com",
+            "name": "Kevin Michael Cardenas Miranda",
+            "username": "kevin-mcm"
+          },
+          "distinct": true,
+          "id": "e563dc3a1adc1451aa66e36908c6014b2a940483",
+          "message": "ci: package Conan bundles and cppi-run for every release\n\npackage.yml builds the Conan package for each target the way a game\nconsumes it (static, without cppi-run) and saves it with its recipe,\nsources and tree-sitter binaries as a conan cache save bundle, so\ncppi-farm can restore cppi/<version> without a Conan remote. Targets:\nLinux x86_64 (Release, Debug), Linux arm64, the three Android ABIs, and\nWebAssembly for Godot's web export (emscripten-godot, equal to\ncppi-farm's web profile). release.yml runs it on each vX.Y.Z tag and\npublishes the bundles, cppi-run and SHA256SUMS in the GitHub Release,\nwith the version's CHANGELOG section as its text. It can also run by\nhand to try a branch in the game before tagging.",
+          "timestamp": "2026-10-09T05:21:22-04:00",
+          "tree_id": "28980d11dd54648bd817d07b906fa7485b97da40",
+          "url": "https://github.com/kevin-mcm/cppi/commit/e563dc3a1adc1451aa66e36908c6014b2a940483"
+        },
+        "date": 1791537780115,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Compile/10_mean",
+            "value": 766.3687470270097,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 766.3030264864865 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Compile/10_median",
+            "value": 766.5274567567377,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 766.5323756756759 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Compile/100_mean",
+            "value": 1571.655295505616,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 1571.393233707866 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Compile/100_median",
+            "value": 1570.9109494382305,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 1570.6898988764053 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Compile/1000_mean",
+            "value": 9721.193827586158,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 9720.311455172405 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Compile/1000_median",
+            "value": 9705.320068965468,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 9703.414448275838 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Compile/10000_mean",
+            "value": 93769.22486666692,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 93759.95619999991 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Compile/10000_median",
+            "value": 93456.52533333749,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 93445.55633333318 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/10_mean",
+            "value": 1.0492565106927434,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 1.0491515792684507 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/10_median",
+            "value": 1.04788157067552,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 1.0478445691838985 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/100_mean",
+            "value": 5.228737131979208,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 5.227592991664663 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/100_median",
+            "value": 5.177270630417659,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 5.176693773448902 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/1000_mean",
+            "value": 44.74321029011052,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 44.737963103061404 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/1000_median",
+            "value": 44.684006090719194,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 44.67965507292832 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/10000_mean",
+            "value": 446.6089380417323,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 446.54825489566673 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/10000_median",
+            "value": 446.6423788122047,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 446.6420385232747 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/100000_mean",
+            "value": 4490.89437096772,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 4489.230719354833 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Run/100000_median",
+            "value": 4493.7456774193615,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 4490.470209677422 us\nthreads: 1"
+          },
+          {
+            "name": "BM_RunWithObserver/10000_mean",
+            "value": 486.90219685314776,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 486.81418006992897 us\nthreads: 1"
+          },
+          {
+            "name": "BM_RunWithObserver/10000_median",
+            "value": 486.9526031468683,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 486.8846118881099 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Step_mean",
+            "value": 43.31724682098782,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 43.313292037037066 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Step_median",
+            "value": 43.29665462963096,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 43.296655709876866 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Level_ShortestPath_mean",
+            "value": 319.1524549019562,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 319.11964429065654 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Level_ShortestPath_median",
+            "value": 319.12427912341064,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 319.1029896193743 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Level_TravellingSalesman_mean",
+            "value": 5307.832277777733,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 5305.567451851866 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Level_TravellingSalesman_median",
+            "value": 5326.076388888729,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 5325.86135185186 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Level_Memoization_mean",
+            "value": 323.95974683258015,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 323.91169276018223 us\nthreads: 1"
+          },
+          {
+            "name": "BM_Level_Memoization_median",
+            "value": 320.7957058823668,
+            "unit": "us/iter",
+            "extra": "iterations: 5\ncpu: 320.7414106334867 us\nthreads: 1"
           }
         ]
       }
