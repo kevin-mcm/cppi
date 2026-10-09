@@ -403,7 +403,7 @@ bool InitializerBinder::default_initialize(BExprPtr target, TypeRef type, bool f
         }
         return construct(std::move(target), type, {}, range, out);
     }
-    if (info.is_abstract) {
+    if (complete && info.is_abstract) {
         return construct(std::move(target), type, {}, range, out);  // reports
     }
     if (fresh_local) {

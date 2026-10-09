@@ -390,6 +390,37 @@ TEST(Language, VirtualFunctionsDispatchOnTheDynamicType) {
     EXPECT_TRUE((output(program, standard(Standard::Cpp11)) ==
                  Calls{"take_int(20)", "take_int(40)", "take_int(0)", "take_int(4)"}));
     EXPECT_EQ(compile_error("struct Shape { virtual int area() = 0; }; Shape s;"), DiagCode::AbstractClass);
+    // A concrete class whose base is abstract and has no constructors.
+    const char* const concrete = R"(
+        struct Shape { virtual int area() = 0; };
+        struct Square : Shape { int area() override { return 9; } };
+        struct A { virtual int f() = 0; };
+        struct B : virtual A { int f() override { return 3; } };
+        struct C : virtual A {};
+        struct D : B, C {};
+        Square s;
+        Shape& r = s;
+        take_int(r.area());
+        D d;
+        A& a = d;
+        take_int(a.f());
+    )";
+    EXPECT_TRUE((output(concrete, standard(Standard::Cpp11)) == Calls{"take_int(9)", "take_int(3)"}));
+    // ...with a constructor, a default member initializer, and passed by value.
+    const char* const derived = R"(
+        struct Plot { virtual int crop() = 0; };
+        struct Wheat : Plot { int n; Wheat(int k) : n(k) {} int crop() override { return n; } };
+        struct Corn : Plot { int n = 4; int crop() override { return n; } };
+        int tend(Corn c) { return c.crop(); }
+        Wheat w(7);
+        Corn c;
+        take_int(w.crop());
+        take_int(tend(c));
+    )";
+    EXPECT_TRUE((output(derived, standard(Standard::Cpp11)) == Calls{"take_int(7)", "take_int(4)"}));
+    EXPECT_EQ(compile_error("struct S { virtual int a() = 0; virtual int b() = 0; };"
+                            "struct D : S { int a() { return 1; } }; D d;"),
+              DiagCode::AbstractClass);
     EXPECT_EQ(
         compile_error("struct B { void f() {} }; struct D : B { void f() override {} };", standard(Standard::Cpp11)),
         DiagCode::NothingToOverride);
