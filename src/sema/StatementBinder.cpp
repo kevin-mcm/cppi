@@ -697,6 +697,12 @@ void StatementBinder::bind_return(const ast::ReturnStmt& s, SourceRange range, s
             deduced = probe->type;
             fn.return_type = deduced;
             ctx_.functions[fn.function].return_type = deduced;
+            if (types.is_void(deduced)) {
+                // `return say(n);` returns nothing: evaluate the call, then return without a value.
+                out.push_back(wrap(range, BExprStmt{std::move(*probe)}));
+                finish(std::nullopt);
+                return;
+            }
             finish(std::move(*probe));
             return;
         }
