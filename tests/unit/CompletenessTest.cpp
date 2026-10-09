@@ -556,6 +556,86 @@ TEST(Completeness, GenericLambdasAndDeducedReturnTypes) {
               "4 2.5 13 2.5 3\n");
 }
 
+TEST(Completeness, DeducedReturnTypeFirstReturnCanReturnAVoidCall) {
+    // The first return decides the type: a void call there must not return a value.
+    EXPECT_EQ(printed(R"(
+        void say(int n) { std::cout << n; }
+        auto relay(int n) {
+            if (n == 0) {
+                return say(n);
+            }
+            return say(n + 1);
+        }
+        relay(0);
+        relay(1);
+        std::cout << std::endl;
+    )",
+                      standard(Standard::Cpp14)),
+              "02\n");
+    EXPECT_EQ(printed(R"(
+        void say(int n) { std::cout << n; }
+        auto relay = [](int n) {
+            if (n == 0) return say(n);
+            return say(n + 1);
+        };
+        relay(0);
+        relay(1);
+        std::cout << std::endl;
+    )",
+                      standard(Standard::Cpp14)),
+              "02\n");
+    EXPECT_EQ(printed(R"(
+        void say(int n) { std::cout << n; }
+        struct Relay {
+            int offset = 1;
+            auto relay(int n) {
+                if (n == 0) {
+                    return say(n);
+                }
+                return say(n + offset);
+            }
+        };
+        Relay r;
+        r.relay(0);
+        r.relay(1);
+        std::cout << std::endl;
+    )",
+                      standard(Standard::Cpp14)),
+              "02\n");
+}
+
+TEST(Completeness, StdVisitWorksOnEveryAlternative) {
+    // Each arm of the prelude's visit returns the first alternative's call first.
+    EXPECT_EQ(printed(R"(
+        #include <variant>
+        auto show = [](const auto& x) { std::cout << x << " "; };
+        std::variant<int, char> two = 1;
+        std::visit(show, two);
+        two = 'b';
+        std::visit(show, two);
+        std::variant<int, double, char> three = 1;
+        std::visit(show, three);
+        three = 2.5;
+        std::visit(show, three);
+        three = 'c';
+        std::visit(show, three);
+        std::variant<int, double, char, std::string> four = 1;
+        std::visit(show, four);
+        four = 2.5;
+        std::visit(show, four);
+        four = 'c';
+        std::visit(show, four);
+        four = std::string("d");
+        std::visit(show, four);
+        std::visit([](const auto& x) {}, four);
+        four = 0;
+        std::visit([](const auto& x) {}, four);
+        std::cout << std::endl;
+    )",
+                      cpp17),
+              "1 b 1 2.5 c 1 2.5 c d \n");
+}
+
 TEST(Completeness, StdVariantHoldsOneOfSeveralTypes) {
     EXPECT_EQ(printed(R"(
         #include <variant>

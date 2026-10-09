@@ -4,6 +4,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+### Fixed
+- `std::visit` on a variant holding its first alternative crashed the VM, whatever the visitor did. A function with a deduced return type (`auto f()`, or a lambda without `-> T`) whose first `return` returned a void call (`return say(n);`) was compiled as returning a value, so the return popped an empty operand stack; the prelude's `std::visit` returns `f(...)` for alternative 0 first. Later void returns, and functions declared `void`, were never affected.
+
 ## [0.3.0] - 2026-10-09
 
 ### Fixed
