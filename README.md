@@ -87,7 +87,7 @@ Benchmarks: `conan install . -s build_type=Release -o "&:with_benchmarks=True" .
 ```python
 # the game's conanfile.py
 def requirements(self):
-    self.requires("cppi/0.1.0")
+    self.requires("cppi/0.2.0")
 ```
 
 ```cmake

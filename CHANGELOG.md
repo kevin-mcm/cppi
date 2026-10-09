@@ -4,6 +4,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Added
 - Language phases 2–5: variables, operators and control flow; functions, overloading, recursion, arrays, pointers, references, `new`/`delete`, `struct`, `enum`, `switch`, namespaces; classes with constructors, destructors, copies, operator overloading, conversion operators, single/multiple/virtual inheritance and virtual functions; class and function templates.
 - Modern C++: `auto`, lambdas, range-for, `nullptr`, `enum class`, rvalue references and `std::move`, `= delete`/`= default`, `explicit`, structured bindings, `if constexpr`, binary literals and digit separators.

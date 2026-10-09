@@ -86,15 +86,15 @@ tools/conan-bundle.sh conan/profiles/ci Release dist/cppi-linux-x86_64-release.t
 The repository is private, so downloads need a GitHub token that can read it: `gh auth login` on a workstation, and in the game's workflows a secret with a fine-grained token (*Contents: read* on `cppi`) passed as `GH_TOKEN`.
 
 ```bash
-gh release download v0.1.0 --repo kevin-mcm/cppi --pattern 'cppi-*-conan-all.tgz' --dir build/cppi
-conan cache restore build/cppi/cppi-0.1.0-conan-all.tgz
-conan install . --build=missing ...   # finds cppi/0.1.0 in the cache
+gh release download v0.2.0 --repo kevin-mcm/cppi --pattern 'cppi-*-conan-all.tgz' --dir build/cppi
+conan cache restore build/cppi/cppi-0.2.0-conan-all.tgz
+conan install . --build=missing ...   # finds cppi/0.2.0 in the cache
 ```
 
 To try a cppi branch in the game before a release, run *Package* on that branch (Actions → Package → Run workflow, or `gh workflow run package.yml --repo kevin-mcm/cppi --ref <branch>`) and download its artifact:
 
 ```bash
-gh run download <run-id> --repo kevin-mcm/cppi --name cppi-0.1.0 --dir build/cppi
+gh run download <run-id> --repo kevin-mcm/cppi --name cppi-0.2.0 --dir build/cppi
 ```
 
 The version does not change between releases, so a restored bundle replaces the recipe revision of `cppi/<version>` that was in the cache; restore the release's bundle to go back. Artifacts are kept for 90 days.

@@ -7,7 +7,7 @@ This guide describes how a game (for example, a Godot project with GDExtension) 
 ```python
 # conanfile.py of the game's native module
 def requirements(self):
-    self.requires("cppi/0.1.0")
+    self.requires("cppi/0.2.0")
 ```
 
 For mobile, use the profiles in `conan/profiles/` as a base (`android-arm64`, `ios-arm64`). They disable `cppi-run`, which makes no sense on a phone.
