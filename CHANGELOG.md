@@ -4,6 +4,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-09
+
 ### Added
 - E0407 `internal-error` (`what`): a bug in cppi itself, not in the program. The VM reports it, with status `RuntimeError`, instead of popping an empty operand stack (`what=operand stack underflow`), which was undefined behavior in the host. Messages in cppi-run's English and Spanish catalogs.
 
