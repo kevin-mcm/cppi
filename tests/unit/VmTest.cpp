@@ -5,11 +5,14 @@
 /// @author kevin-mcm <kevincardenasmiranda9@gmail.com>
 /// @date 2026-10-08
 
+#include "codegen/ProgramData.hpp"
 #include "support/RecordingHost.hpp"
 #include "support/Require.hpp"
+#include "vm/Vm.hpp"
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -336,4 +339,24 @@ TEST(Vm, AnOutOfRangeDoubleConstantIsNotFoldedIntoAnInteger) {
     f.recorder.calls.clear();
     EXPECT_TRUE(f.interpreter.run(f.compile("int y = 2.7;\ntake_int(y);")).ok());
     EXPECT_EQ(f.recorder.calls, Calls{"take_int(2)"});
+}
+
+TEST(Vm, AnOperandStackUnderflowIsAnInternalErrorNotACrash) {
+    // Code generation never emits these; a bug that did must stop the run, not read past the stack.
+    Fixture f;
+    const Program program = f.compile("harvest();");
+    for (const detail::Instruction bad :
+         {detail::Instruction{detail::OpCode::Pop}, detail::Instruction{detail::OpCode::Dup},
+          detail::Instruction{detail::OpCode::Swap}, detail::Instruction{detail::OpCode::Over},
+          detail::Instruction{detail::OpCode::Ret, 0, 1, 0}}) {
+        SCOPED_TRACE(detail::to_string(bad.op));
+        auto data = std::make_shared<detail::ProgramData>(program.data());
+        data->code[data->functions.front().entry] = bad;
+        detail::Vm vm(data, RunOptions{});
+        const RunResult result = vm.run();
+        EXPECT_EQ(result.status, RunStatus::RuntimeError);
+        ASSERT_EQ(result.diagnostics.size(), 1U);
+        EXPECT_EQ(result.diagnostics[0].code, DiagCode::InternalError);
+        EXPECT_EQ(result.diagnostics[0].args.at(0).name, "what");
+    }
 }

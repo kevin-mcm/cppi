@@ -4,6 +4,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+### Added
+- E0407 `internal-error` (`what`): a bug in cppi itself, not in the program. The VM reports it, with status `RuntimeError`, instead of popping an empty operand stack (`what=operand stack underflow`), which was undefined behavior in the host. Messages in cppi-run's English and Spanish catalogs.
+
 ### Fixed
 - `std::visit` on a variant holding its first alternative crashed the VM, whatever the visitor did. A function with a deduced return type (`auto f()`, or a lambda without `-> T`) whose first `return` returned a void call (`return say(n);`) was compiled as returning a value, so the return popped an empty operand stack; the prelude's `std::visit` returns `f(...)` for alternative 0 first. Later void returns, and functions declared `void`, were never affected.
 

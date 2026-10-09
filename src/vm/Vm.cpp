@@ -98,6 +98,12 @@ void Vm::fail(Diagnostic diagnostic) {
     diagnostics_.push_back(std::move(diagnostic));
 }
 
+void Vm::stack_underflow() {
+    if (status_ == RunStatus::Running) {
+        fail(DiagnosticFactory::internal_error(here(), "operand stack underflow"));
+    }
+}
+
 VariableInspector Vm::inspector() const {
     std::vector<VariableInspector::FrameView> views;
     for (std::size_t i = frames_.size(); i-- > 0;) {
@@ -170,6 +176,9 @@ std::uint64_t Vm::cost_of(const Instruction& ins) const noexcept {
 }
 
 void Vm::finish() {
+    if (status_ != RunStatus::Running) {
+        return;  // the last instruction failed (e.g. a return that underflowed)
+    }
     status_ = RunStatus::Completed;
     const std::size_t leaks = memory_.live_blocks();
     if (leaks > 0) {
@@ -264,10 +273,22 @@ void Vm::execute(const Instruction& ins) {
     const Frame& frame = frames_.back();
     switch (ins.op) {
         case OpCode::PushConst: push(program_->constants[ins.operand].bits); break;
-        case OpCode::Pop: stack_.pop_back(); break;
-        case OpCode::Dup: push(stack_.back()); break;
-        case OpCode::Swap: std::swap(stack_[stack_.size() - 1], stack_[stack_.size() - 2]); break;
-        case OpCode::Over: push(stack_[stack_.size() - 2]); break;
+        case OpCode::Pop: static_cast<void>(pop()); break;
+        case OpCode::Dup:
+            if (has_operands(1)) {
+                push(stack_.back());
+            }
+            break;
+        case OpCode::Swap:
+            if (has_operands(2)) {
+                std::swap(stack_[stack_.size() - 1], stack_[stack_.size() - 2]);
+            }
+            break;
+        case OpCode::Over:
+            if (has_operands(2)) {
+                push(stack_[stack_.size() - 2]);
+            }
+            break;
 
         case OpCode::LocalAddr: {
             const std::uint32_t address = frame.base + ins.operand;

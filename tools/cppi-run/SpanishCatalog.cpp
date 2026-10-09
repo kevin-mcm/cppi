@@ -69,6 +69,7 @@ constexpr MessageEntry kDiagnostics[] = {
     {"uncaught-exception", "excepción no capturada de tipo '{type}'[: {what}]"},
     {"exception-during-unwind", "se lanzó una excepción de tipo '{type}' mientras se manejaba otra"},
     {"no-active-exception", "'throw;' sin ninguna excepción en curso"},
+    {"internal-error", "error interno del intérprete ({what}); es un fallo de cppi, no de tu programa"},
     {"division-by-zero", "comportamiento indefinido: división entre cero"},
     {"integer-overflow", "comportamiento indefinido: el resultado no cabe en '{type}'"},
     {"uninitialized-read", "comportamiento indefinido: se lee una variable que aún no tiene valor[ ('{name}')]"},
