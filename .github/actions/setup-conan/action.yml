@@ -1,11 +1,14 @@
-# Composite action: installs Conan 2, detects the default profile and
-# restores the package cache.
+# Composite action: installs Conan 2, detects the default profile, restores
+# the package cache and sets up ccache with its own cache.
 #
 # Author: kevin-mcm <kevincardenasmiranda9@gmail.com>
 # Date:   2026-10-08
 
 name: Setup Conan
-description: Install Conan 2, detect the default profile and restore the package cache.
+description: >
+  Install Conan 2, detect the default profile and restore the package cache.
+  Also installs ccache and restores its cache, so CMake compiles only what
+  changed since the last run of the same job.
 
 inputs:
   cache-key:
@@ -33,3 +36,33 @@ runs:
         key: conan-${{ runner.os }}-${{ inputs.cache-key }}-${{ hashFiles('conanfile.py', 'conan/profiles/**') }}
         restore-keys: |
           conan-${{ runner.os }}-${{ inputs.cache-key }}-
+
+    # CMake reads CMAKE_<LANG>_COMPILER_LAUNCHER from the environment when it
+    # configures a new build tree, so every `cmake --preset` and `conan build`
+    # after this step compiles through ccache.
+    - name: Install ccache
+      shell: bash
+      run: |
+        sudo apt-get install -y --no-install-recommends ccache
+        {
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+          echo "CCACHE_MAXSIZE=250M"
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+        } >> "$GITHUB_ENV"
+
+    # Jobs that share a Conan cache (sanitizers, clang-tidy, fuzz) compile with
+    # different flags, so the ccache key also names the job. A cache entry is
+    # immutable: each run saves a new one, and restore-keys picks the latest.
+    - name: Restore ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ runner.os }}-${{ github.job }}-${{ inputs.cache-key }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ccache-${{ runner.os }}-${{ github.job }}-${{ inputs.cache-key }}-
+
+    - name: Reset ccache statistics
+      shell: bash
+      run: ccache --zero-stats

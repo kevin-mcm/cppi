@@ -18,7 +18,7 @@ macOS and Windows runners are not in CI yet, so build and test on those platform
 
 | Platform | Runner | How it is tested |
 |---|---|---|
-| Linux x64 (GCC and Clang, Debug and Release) | `ubuntu-24.04` | Native tests |
+| Linux x64 (GCC Debug and Release, Clang Release) | `ubuntu-24.04` | Native tests (Clang Debug runs in the sanitizers job) |
 | Linux arm64 | `ubuntu-24.04-arm` | Native tests |
 | Linux x86 32-bit | `ubuntu-24.04` + multilib | Native tests (catches pointer-width bugs that would affect armv7 and WebAssembly) |
 | Android x86_64 | `ubuntu-24.04` + API 30 emulator | Unit tests inside the emulator |
@@ -27,19 +27,16 @@ macOS and Windows runners are not in CI yet, so build and test on those platform
 
 `actionlint` validates the workflows.
 
-Every job uses the composite action `.github/actions/setup-conan`, which installs Conan, detects the profile, and restores the package cache.
+Every job uses the composite action `.github/actions/setup-conan`, which installs Conan, detects the profile, and restores the package cache. It also installs [ccache](https://ccache.dev/) and restores its cache (one per job and configuration, 250 MB at most), so a run recompiles only the files that changed since the previous run; `CMAKE_CXX_COMPILER_LAUNCHER` in the environment makes CMake use it. A build tree configured before that variable was set keeps compiling without ccache, which only matters locally.
 
 ### What blocks a merge
 
 In GitHub (*Settings → Branches → Branch protection* for `master`), make these checks required:
 
-- `Format`
-- Every `build` combination
-- `Sanitizers (ASan + UBSan)`
-- `clang-tidy`
-- `Coverage`
-- `Fuzz (60 s)`
+- `CI result`, which fails when any job of `ci.yml` fails or is cancelled
 - `benchmark`
+
+Do not require the individual jobs of `ci.yml`. A pull request that only touches documentation (`docs/`, Markdown files, `LICENSE`) skips every build, and a skipped matrix job never reports its per-configuration names, so those checks would stay pending. `CI result` and `benchmark` report as passed when skipped. Pushes to `master` always build.
 
 ## Versioning
 

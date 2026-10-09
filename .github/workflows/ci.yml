@@ -21,8 +21,28 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.check.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+      - id: check
+        uses: ./.github/actions/code-changed
+
+  # ---------------------------------------------------------------------------
+  # Every other job needs this one, so skipping it on a documentation-only
+  # pull request skips them all.
   format:
     name: Format
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -34,7 +54,8 @@ jobs:
             | xargs -0 clang-format-18 --dry-run -Werror
 
   # ---------------------------------------------------------------------------
-  # Desktop: build and run every test natively.
+  # Desktop: build and run every test natively. Clang Debug is built and
+  # tested by the sanitizers job.
   build:
     name: ${{ matrix.name }} (${{ matrix.build_type }})
     needs: format
@@ -45,7 +66,6 @@ jobs:
         include:
           - { name: Linux x64 GCC, os: ubuntu-24.04, profile: ci, build_type: Debug }
           - { name: Linux x64 GCC, os: ubuntu-24.04, profile: ci, build_type: Release }
-          - { name: Linux x64 Clang, os: ubuntu-24.04, profile: linux-clang, build_type: Debug }
           - { name: Linux x64 Clang, os: ubuntu-24.04, profile: linux-clang, build_type: Release }
           - { name: Linux arm64 GCC, os: ubuntu-24.04-arm, profile: ci, build_type: Release }
           - name: Linux x86 (32-bit) GCC
@@ -79,6 +99,10 @@ jobs:
           cmake --preset "conan-$lower" -DCPPI_WARNINGS_AS_ERRORS=ON
           cmake --build --preset "conan-$lower" --parallel
           ctest --preset "conan-$lower" --output-on-failure --output-junit junit.xml
+
+      - name: ccache statistics
+        if: always()
+        run: ccache --show-stats
 
       - name: Upload test results
         if: failure()
@@ -263,3 +287,17 @@ jobs:
         with:
           name: fuzz-findings
           path: fuzz/findings/
+
+  # ---------------------------------------------------------------------------
+  # The one check to require in branch protection: skipped matrix jobs never
+  # report their per-configuration names, so requiring those would leave a
+  # documentation-only pull request waiting forever.
+  result:
+    name: CI result
+    needs: [changes, format, build, android, webassembly, sanitizers, static-analysis, coverage, fuzz]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the jobs
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
