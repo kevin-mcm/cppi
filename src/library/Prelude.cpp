@@ -124,6 +124,32 @@ constexpr std::string_view kSource = R"cpp(
     pair<A, B> make_pair(A a, B b) {
         return pair<A, B>(a, b);
     }
+    // Compared member by member, first then second, with only the members'
+    // == and < (as the standard specifies them before C++20).
+    template <class A, class B>
+    bool operator==(const pair<A, B>& x, const pair<A, B>& y) {
+        return x.first == y.first && x.second == y.second;
+    }
+    template <class A, class B>
+    bool operator!=(const pair<A, B>& x, const pair<A, B>& y) {
+        return !(x == y);
+    }
+    template <class A, class B>
+    bool operator<(const pair<A, B>& x, const pair<A, B>& y) {
+        return x.first < y.first || (!(y.first < x.first) && x.second < y.second);
+    }
+    template <class A, class B>
+    bool operator>(const pair<A, B>& x, const pair<A, B>& y) {
+        return y < x;
+    }
+    template <class A, class B>
+    bool operator<=(const pair<A, B>& x, const pair<A, B>& y) {
+        return !(y < x);
+    }
+    template <class A, class B>
+    bool operator>=(const pair<A, B>& x, const pair<A, B>& y) {
+        return !(x < y);
+    }
 
     // --- Algorithms on ranges given by pointers --------------------------------------
 

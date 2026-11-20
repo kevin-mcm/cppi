@@ -520,23 +520,24 @@ TEST(Modern, AClassWithoutTheOperatorSaysSo) {
         EXPECT_FALSE(r.compiled.ok()) << source;
         return r.compiled.diagnostics;
     };
-    // std::sort needs operator<, which cppi's std::pair does not have: the
-    // error names the operator and the type, at the player's call, and a note
-    // says which library function needed it.
+    // std::sort needs operator<; std::pair's compares the members, so a pair
+    // of a struct without < cannot be sorted: the error names the operator and
+    // the member's type, at the player's call, once, and a note says which
+    // library function needed it.
     auto pairs = errors(R"(#include <vector>
 #include <algorithm>
-std::vector<std::pair<int, int>> v;
-v.push_back(std::make_pair(2, 1));
+struct P { int x; };
+std::vector<std::pair<P, int>> v;
 std::sort(v.begin(), v.end());
 )");
     ASSERT_EQ(pairs.size(), 2U);
     EXPECT_EQ(pairs[0].code, DiagCode::NoOperator);
     EXPECT_EQ(pairs[0].arg_text("op"), "<");
-    EXPECT_EQ(pairs[0].arg_text("type"), "pair<int, int>");
+    EXPECT_EQ(pairs[0].arg_text("type"), "P");
     EXPECT_EQ(pairs[0].range.begin.line, 5);
     EXPECT_EQ(pairs[1].code, DiagCode::InstantiatedFrom);
     EXPECT_EQ(pairs[1].severity, Severity::Note);
-    EXPECT_EQ(pairs[1].arg_text("function"), "std::sort<pair<int, int>>");
+    EXPECT_EQ(pairs[1].arg_text("function"), "std::sort<pair<P, int>>");
     EXPECT_EQ(pairs[1].range, pairs[0].range);
 
     // A struct of the player's, in the library and in the player's own code.
@@ -647,6 +648,51 @@ bool r = x < y;
     EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
     EXPECT_EQ(r.compiled.diagnostics[0].arg_text("type"), "Box<int>");
     EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 6);
+}
+
+TEST(Modern, PairComparesFirstThenSecond) {
+    EXPECT_EQ(printed(R"(
+        std::pair<int, int> a(1, 5);
+        std::pair<int, int> b(2, 0);
+        std::pair<int, int> c(1, 6);
+        std::cout << (a < b) << " " << (a < c) << " " << (a == std::make_pair(1, 5)) << " "
+                  << (a != std::make_pair(1, 5)) << " " << (b >= a) << " " << (c > a) << (a <= a) << (b > c);
+    )"),
+              "1 1 1 0 1 111");
+}
+
+TEST(Modern, SortingPairsNeedsNoComparator) {
+    EXPECT_EQ(printed(R"(
+        std::vector<std::pair<int, int> > v;
+        v.push_back(std::make_pair(2, 1));
+        v.push_back(std::make_pair(1, 5));
+        v.push_back(std::make_pair(1, 2));
+        std::sort(v.begin(), v.end());
+        for (int i = 0; i < 3; ++i) {
+            std::cout << v[i].first << "," << v[i].second << " ";
+        }
+    )"),
+              "1,2 1,5 2,1 ");
+}
+
+TEST(Modern, PairOfAClassWithoutLessHasNoLess) {
+    // std::pair's operator< compares the members with <: a member type without
+    // it is reported at the player's comparison, naming that type.
+    auto r = run(R"(struct P { int x; };
+std::pair<P, int> a;
+std::pair<P, int> b;
+bool less = a < b;
+)");
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("op"), "<");
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("type"), "P");
+    EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 4);
+    // Once, although the operator compares `first` twice, and without a
+    // warning about the operator's own return: only the note follows.
+    ASSERT_EQ(r.compiled.diagnostics.size(), 2U);
+    EXPECT_EQ(r.compiled.diagnostics[1].code, DiagCode::InstantiatedFrom);
+    EXPECT_EQ(r.compiled.diagnostics[1].arg_text("function"), "std::operator< <P, int>");
 }
 
 TEST(Modern, AReturnWithAnErrorIsNotAMissingReturn) {

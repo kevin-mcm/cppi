@@ -4,6 +4,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+### Added
+- `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
+
 ### Fixed
 - Operators written as function templates (`template <class A, class B> bool operator<(const Pr<A, B>&, const Pr<A, B>&)`) are found and deduced from the operands, also from the namespace of the operands' class. They gave E0239 `no-operator`.
 - A function template may share its name with ordinary functions (`int f(int); template <class T> int f(T);`), declared before or after them. This gave E0208 `redefinition`. On equal conversions the ordinary function is chosen, and `f<int>(x)` calls the template.
