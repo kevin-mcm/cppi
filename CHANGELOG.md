@@ -9,6 +9,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
 
 ### Fixed
+- A data member that is a function object can be called: `comp_(a, b)` inside the class, and `obj.comp(a, b)` or `p->comp(a, b)` outside it. This gave E0200 `unknown-function` or E0204 `not-callable`.
 - `std::vector` constructs and destroys only the elements it holds, as a real one does:
   - `reserve` constructs nothing;
   - `push_back` needs no default constructor;

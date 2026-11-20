@@ -844,3 +844,24 @@ TEST(Modern, SortWithStdGreater) {
                       cpp17),
               "521 125 1011");
 }
+
+TEST(Modern, ADataMemberThatIsAFunctionObjectCanBeCalled) {
+    // `f(n)` inside the class and `h.f(5)`, `p->f(6)` outside call the member's operator().
+    EXPECT_EQ(printed(R"(
+        struct Twice { int operator()(int x) const { return 2 * x; } };
+        struct Holder {
+            Twice f;
+            int n;
+            int run() { return f(n); }
+        };
+        Holder h;
+        h.n = 4;
+        std::cout << h.run() << h.f(5);
+        Holder* p = &h;
+        std::cout << p->f(6);
+    )",
+                      cpp17),
+              "81012");
+    // A data member that is not a function object is still not callable.
+    EXPECT_EQ(compile_error("struct S { int x; };\nS s;\ns.x(1);\n"), DiagCode::NotCallable);
+}

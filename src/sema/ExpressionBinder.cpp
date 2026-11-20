@@ -765,6 +765,16 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
             ctx_.report(DiagnosticFactory::ambiguous_name(c.callee_range, c.callee));
             return nullptr;
         }
+        // A data member that is a function object: `comp_(a, b)` calls this->comp_.operator().
+        if (m.kind == MemberResult::Kind::Field && types.is_record(m.field->type) &&
+            is_function_object(types.info(m.field->type).decl)) {
+            auto object = identifier(ast::Identifier{c.callee, {}}, c.callee_range, Use::Value);
+            auto args = bind_args();
+            if (!object || !args) {
+                return nullptr;
+            }
+            return call_function_object(std::move(object), std::move(*args), range, c.callee_range);
+        }
     }
     if (symbol == nullptr) {
         symbol = ctx_.symbols.lookup(c.callee);
@@ -921,8 +931,24 @@ BExprPtr ExpressionBinder::method_call(const ast::CallExpr& c, const ast::Member
         return nullptr;
     }
     if (m.kind == MemberResult::Kind::Field) {
-        ctx_.report(DiagnosticFactory::not_callable(callee.member_range, callee.member));
-        return nullptr;
+        // A data member that is a function object: `obj.comp(a, b)` calls obj.comp.operator().
+        if (!types.is_record(m.field->type) || !is_function_object(types.info(m.field->type).decl)) {
+            ctx_.report(DiagnosticFactory::not_callable(callee.member_range, callee.member));
+            return nullptr;
+        }
+        auto field = member(callee, callee.member_range);
+        std::vector<BExprPtr> args;
+        for (const auto& a : c.args) {
+            auto bound = bind(a);
+            if (!bound) {
+                return nullptr;
+            }
+            args.push_back(std::move(bound));
+        }
+        if (!field) {
+            return nullptr;
+        }
+        return call_function_object(std::move(field), std::move(args), range, callee.member_range);
     }
     std::vector<BExprPtr> args;
     for (const auto& a : c.args) {
