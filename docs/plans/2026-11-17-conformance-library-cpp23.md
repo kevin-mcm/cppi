@@ -162,6 +162,19 @@ cppi-farm's `std-map` level relies on `std::map<char, Direction>::operator[]` in
 - [ ] **Step 4: Run all tests and the benchmarks** (`bench/`): a large rise in the operation counts of `push_back` loops is a regression to fix, because game budgets depend on them.
 - [ ] **Step 5: Commit** `fix(library): vector constructs and destroys only the elements it holds`.
 
+**Done (2026-11-20), differently from the plan:** there are no VM intrinsics.
+- Sema lowers the five operations, prelude only (`library_depth > 0`), to nodes that already exist:
+  - `__cppi_allocate<T>(n)` → `BNew` without a constructor or headers;
+  - `__cppi_deallocate(p)` → `BDelete[]` without a destructor;
+  - `__cppi_construct(p, v)` → `InitializerBinder::construct`, the copy constructor;
+  - `__cppi_construct_moved(p, v)` → the same, with `v` expiring, so the move constructor is used if there is one;
+  - `__cppi_construct(p)` → value-initialization;
+  - `__cppi_destroy(p)` → `InitializerBinder::destroy` + `BUninit`.
+- The pointer is kept in a frame cell so the target `*cell` can be cloned.
+- It needed C4b first: done in the same change.
+- Measured side by side with 0.3.1 under the same load, the operations are identical (9222 / 150188 / 6012) and CPU times are within noise (−6 % to +9 %).
+- The whole suite also passes under AddressSanitizer.
+
 ### Task C4b: class template members are instantiated only when used
 
 **Files:** `src/sema/TemplateEngine.cpp` (`instantiate_class`) and the binding of member function bodies; `tests/unit/ModernTest.cpp`; `CHANGELOG.md`.
@@ -177,6 +190,11 @@ A related limitation: cppi instantiates every function template candidate whose 
 - [ ] **Step 2: Implement.** Declare the members when the class is instantiated, and bind each body on its first use (call, address taken, virtual: the vtable needs virtual members at once).
 - [ ] **Step 3: Run all tests and the benchmarks.**
 - [ ] **Step 4: Commit** `fix(sema): class template members are instantiated only when used`.
+
+**Done (2026-11-20), before C4, which needed it** (`std::vector<N>` with only `N(int)`):
+- `bind_record` defers the bodies of non-virtual members written in the class into `DeclarationBinder::deferred_bodies`. Virtual and implicit members are still defined with the class.
+- `TemplateEngine::define_if_pending` binds a deferred body on first use: from `make_call`, and from the constructor of `new` and the destructor of `delete`. It does so inside the template's scope, with the injected class name and the standard library's site. During a muted trial it waits for a real use.
+- Not done: the related limitation (every deducible function template candidate is instantiated before overload resolution) stays.
 
 ### Task C5: function objects `std::less`, `std::greater`, `std::equal_to`
 
