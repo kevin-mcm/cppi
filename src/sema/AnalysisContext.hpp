@@ -73,6 +73,12 @@ public:
         // player's code used it.
         if (library_depth > 0 && library_site.begin.line != 0) {
             d.range = library_site;
+            // Seen from the player's code, two uses of one missing operator in
+            // the library (pair's < compares `first` twice) are one problem.
+            // (While muted, a trial must still count every error.)
+            if (!sink.muted() && sink.has(d)) {
+                return;
+            }
         } else if (d.range.begin.line == 0 && implicit_site.begin.line != 0) {
             d.range = implicit_site;
         }

@@ -783,8 +783,23 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
             if (!args) {
                 return nullptr;
             }
-            return call_candidates(c.callee, symbol->functions, std::move(*args), range, c.callee_range, nullptr,
-                                   false);
+            if (symbol->templates.empty() || ctx_.templates == nullptr) {
+                return call_candidates(c.callee, symbol->functions, std::move(*args), range, c.callee_range, nullptr,
+                                       false);
+            }
+            if (!c.template_args.empty()) {
+                return ctx_.templates->call(c, std::move(*args), range);  // `f<int>(x)`: only the templates
+            }
+            // Ordinary functions and the instances of the templates that share their name.
+            std::vector<const BExpr*> operands;
+            for (const auto& arg : *args) {
+                operands.push_back(arg.get());
+            }
+            std::vector<Callee> candidates = symbol->functions;
+            for (const Callee& instance : ctx_.templates->function_candidates(*symbol, operands, range)) {
+                candidates.push_back(instance);
+            }
+            return call_candidates(c.callee, candidates, std::move(*args), range, c.callee_range, nullptr, false);
         }
         case SymbolKind::Type: {
             const TypeRef type = symbol->type;
@@ -1152,13 +1167,28 @@ BExprPtr ExpressionBinder::construct_temporary(TypeRef type, std::vector<BExprPt
 std::vector<Callee> ExpressionBinder::free_operators(std::string_view name, const BExpr& lhs, const BExpr* rhs) {
     TypeTable& types = ctx_.types;
     std::vector<Callee> out;
+    // Operator templates are deduced from the operands, at the whole expression.
+    std::vector<const BExpr*> operands{&lhs};
+    SourceRange range = lhs.range;
+    if (rhs != nullptr) {
+        operands.push_back(rhs);
+        range.end = rhs->range.end;
+    }
+    auto add_unique = [&](const Callee& c) {
+        if (std::find(out.begin(), out.end(), c) == out.end()) {
+            out.push_back(c);
+        }
+    };
     auto add = [&](const Symbol* s) {
-        if (s == nullptr || s->kind != SymbolKind::Functions) {
+        if (s == nullptr || (s->kind != SymbolKind::Functions && s->kind != SymbolKind::Template)) {
             return;
         }
         for (const Callee& c : s->functions) {
-            if (std::find(out.begin(), out.end(), c) == out.end()) {
-                out.push_back(c);
+            add_unique(c);
+        }
+        if (!s->templates.empty() && ctx_.templates != nullptr) {
+            for (const Callee& c : ctx_.templates->function_candidates(*s, operands, range)) {
+                add_unique(c);
             }
         }
     };

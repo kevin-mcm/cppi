@@ -731,6 +731,12 @@ void DeclarationBinder::bind_function(const ast::FunctionDecl& decl, SourceRange
         }
         return;
     }
+    // An ordinary function may share its name with function templates; the
+    // symbol becomes an overload set that keeps them.
+    if (existing != nullptr && existing->kind == SymbolKind::Template && ctx_.templates != nullptr &&
+        ctx_.templates->function_templates_only(*existing)) {
+        existing->kind = SymbolKind::Functions;
+    }
     if (existing != nullptr && existing->kind != SymbolKind::Functions) {
         if (existing->kind != SymbolKind::Poisoned) {
             ctx_.report(DiagnosticFactory::redefinition(decl.declarator.range, name));
@@ -997,11 +1003,14 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
             body.statements.push_back(std::move(cleanup));
         }
     }
+    const std::size_t errors_before = ctx_.sink.errors();
     if (decl != nullptr && decl->body) {
         if (const auto* block = std::get_if<ast::Block>(&decl->body->node)) {
             ctx_.statements->bind_statements(block->statements, body.statements);
         }
     }
+    // A `return` whose value had an error was dropped: not a missing return.
+    const bool body_failed = ctx_.sink.errors() != errors_before;
     if (info.is_destructor && info.record) {
         ctx_.initializers->destroy_members(*info.record, body.cleanup);
     }
@@ -1016,7 +1025,7 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
                 BReturn r;
                 r.value = std::move(*ExpressionBinder::constant(info.return_type, 0, info.range));
                 body.statements.push_back(wrap(info.range, std::move(r)));
-            } else {
+            } else if (!body_failed) {
                 ctx_.report(DiagnosticFactory::missing_return(info.range, info.display));
             }
         }

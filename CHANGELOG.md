@@ -4,6 +4,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+### Fixed
+- Operators written as function templates (`template <class A, class B> bool operator<(const Pr<A, B>&, const Pr<A, B>&)`) are found and deduced from the operands, also from the namespace of the operands' class. They gave E0239 `no-operator`.
+- A function template may share its name with ordinary functions (`int f(int); template <class T> int f(T);`), declared before or after them. This gave E0208 `redefinition`. On equal conversions the ordinary function is chosen, and `f<int>(x)` calls the template.
+- A missing operator used several times inside one standard library function is reported once at the player's call, not once per use.
+- A function whose `return` value had an error no longer also gets the warning E0222 `missing-return`.
+- Template operators are named `operator< <P, int>` in messages, not `operator<<P, int>`.
+
 ## [0.3.1] - 2026-10-09
 
 ### Added

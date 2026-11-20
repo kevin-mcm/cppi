@@ -49,6 +49,14 @@ public:
                                                         const std::vector<BExprPtr>& args, SourceRange range);
     /// Does `record` (or a base) have member function templates called `name`?
     [[nodiscard]] bool has_member_template(std::uint32_t record, std::string_view name) const;
+    /// Instances of the function templates of `symbol` whose template arguments
+    /// deduce from `args`: candidates next to its ordinary overloads, for a
+    /// call `f(x)` or an operator `a < b`.
+    [[nodiscard]] std::vector<Callee> function_candidates(const Symbol& symbol, const std::vector<const BExpr*>& args,
+                                                          SourceRange range);
+    /// True if every template of `symbol` is a function template (no class
+    /// template or concept), so ordinary functions may share its name.
+    [[nodiscard]] bool function_templates_only(const Symbol& symbol) const;
 
     /// `Box<int>`, `std::vector<int>`.
     [[nodiscard]] std::optional<TypeRef> instantiate_type(const ast::TypeSpec& spec);
@@ -94,7 +102,7 @@ private:
     /// Deduces the template arguments of a function template for `args`.
     [[nodiscard]] std::optional<std::vector<TypeRef>> deduce_all(const TemplateInfo& t, const ast::FunctionDecl& decl,
                                                                  const std::vector<TypeRef>& explicit_args,
-                                                                 const std::vector<BExprPtr>& args);
+                                                                 const std::vector<const BExpr*>& args);
     /// The concept template a name refers to, or nullopt.
     [[nodiscard]] std::optional<std::uint32_t> find_concept(const std::vector<std::string>& scope,
                                                             const std::string& name);

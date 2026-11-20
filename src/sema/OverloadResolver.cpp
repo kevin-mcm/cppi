@@ -285,7 +285,10 @@ std::optional<Callee> OverloadResolver::choose(const std::string& name, const st
         ctx_.report(DiagnosticFactory::no_matching_function(call_range, name, describe(args)));
         return std::nullopt;
     }
-    auto better = [](const Viable& a, const Viable& b) {
+    const auto from_template = [&](const Callee& c) {
+        return !c.host && !c.intrinsic && ctx_.functions[c.id].template_id.has_value();
+    };
+    auto better = [&](const Viable& a, const Viable& b) {
         bool strictly = false;
         for (std::size_t i = 0; i < a.ranks.size(); ++i) {
             if (a.ranks[i] > b.ranks[i]) {
@@ -293,7 +296,8 @@ std::optional<Callee> OverloadResolver::choose(const std::string& name, const st
             }
             strictly = strictly || a.ranks[i] < b.ranks[i];
         }
-        return strictly;
+        // On equal conversions an ordinary function beats a template instance ([over.match.best]).
+        return strictly || (!from_template(a.callee) && from_template(b.callee));
     };
     for (const Viable& v : viable) {
         const bool best = std::all_of(viable.begin(), viable.end(),

@@ -10,6 +10,7 @@
 
 #include <cppi/Severity.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -25,6 +26,9 @@ public:
 
     /// Keeps `diagnostic`, or only counts it (errors) while muted.
     void report(Diagnostic diagnostic) {
+        if (diagnostic.severity == Severity::Error) {
+            ++errors_;
+        }
         if (muted_ > 0) {
             if (diagnostic.severity == Severity::Error) {
                 ++dropped_errors_;  // a trial (concept check): only whether it failed matters
@@ -42,6 +46,17 @@ public:
     [[nodiscard]] std::size_t dropped_errors() const noexcept { return dropped_errors_; }
     /// True while at least one mute() is active.
     [[nodiscard]] bool muted() const noexcept { return muted_ > 0; }
+    /// Errors reported so far, kept or muted.
+    [[nodiscard]] std::size_t errors() const noexcept { return errors_; }
+    /// True if an equal diagnostic (code, severity, place and arguments) was kept already.
+    [[nodiscard]] bool has(const Diagnostic& d) const {
+        return std::any_of(out_->begin(), out_->end(), [&](const Diagnostic& o) {
+            return o.code == d.code && o.severity == d.severity && o.range == d.range &&
+                   std::equal(
+                       o.args.begin(), o.args.end(), d.args.begin(), d.args.end(),
+                       [](const DiagArg& a, const DiagArg& b) { return a.name == b.name && a.value == b.value; });
+        });
+    }
 
 private:
     /// Output list.
@@ -50,6 +65,8 @@ private:
     int muted_ = 0;
     /// See dropped_errors().
     std::size_t dropped_errors_ = 0;
+    /// See errors().
+    std::size_t errors_ = 0;
 };
 
 }  // namespace cppi::detail

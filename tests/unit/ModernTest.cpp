@@ -598,3 +598,64 @@ TEST(Modern, NoOperatorOnlyWhenTheOperatorIsMissing) {
     EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoDefaultConstructor);
     EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 3);
 }
+
+TEST(Modern, FreeOperatorTemplatesAreFound) {
+    // An operator written as a function template is deduced like any other
+    // function template, also from the namespace of the operands' class.
+    EXPECT_EQ(printed(R"(
+        template <class A, class B> struct Pr { A first; B second; Pr(const A& a, const B& b) : first(a), second(b) {} };
+        template <class A, class B> bool operator<(const Pr<A, B>& x, const Pr<A, B>& y) {
+            return x.first < y.first || (!(y.first < x.first) && x.second < y.second);
+        }
+        template <class A, class B> bool operator==(const Pr<A, B>& x, const Pr<A, B>& y) {
+            return x.first == y.first && x.second == y.second;
+        }
+        namespace geo {
+            template <class T> struct V { T x; };
+            template <class T> bool operator<(const V<T>& a, const V<T>& b) { return a.x < b.x; }
+        }
+        Pr<int, int> a(1, 5);
+        Pr<int, int> b(1, 6);
+        geo::V<int> p;
+        p.x = 1;
+        geo::V<int> q;
+        q.x = 2;
+        std::cout << (a < b) << (b < a) << (a == a) << (a == b) << " " << (p < q) << (q < p);
+    )"),
+              "1010 10");
+
+    // A function template may share its name with ordinary functions, declared
+    // before or after them; on equal conversions the ordinary function wins.
+    EXPECT_EQ(printed(R"(
+        int f(int) { return 1; }
+        template <class T> int f(T) { return 2; }
+        template <class T> int g(T) { return 2; }
+        int g(int) { return 1; }
+        std::cout << f(1) << f(2.5) << f<int>(1) << g(1) << g('c');
+    )"),
+              "12212");
+
+    // A template whose parameters cannot be deduced from the operands is not a candidate.
+    auto r = run(R"(template <class A, class B> struct Pr { A first; B second; };
+template <class A, class B> bool operator<(const Pr<A, B>& x, const Pr<A, B>& y) { return x.first < y.first; }
+template <class T> struct Box { T v; };
+Box<int> x;
+Box<int> y;
+bool r = x < y;
+)");
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("type"), "Box<int>");
+    EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 6);
+}
+
+TEST(Modern, AReturnWithAnErrorIsNotAMissingReturn) {
+    // The error is the missing operator; E0222 `missing-return` would only add noise.
+    auto r = run("struct P { int x; };\nbool less(P a, P b) { return a < b; }\n");
+    ASSERT_EQ(r.compiled.diagnostics.size(), 1U);
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    // A function that really can end without returning still gets the warning.
+    auto w = run("int f(int x) { if (x > 0) { return 1; } }\nint y = f(1);\n");
+    ASSERT_EQ(w.compiled.diagnostics.size(), 1U);
+    EXPECT_EQ(w.compiled.diagnostics[0].code, DiagCode::MissingReturn);
+}
