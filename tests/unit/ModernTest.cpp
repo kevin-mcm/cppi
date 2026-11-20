@@ -845,6 +845,99 @@ TEST(Modern, SortWithStdGreater) {
               "521 125 1011");
 }
 
+TEST(Modern, QueueIsFirstInFirstOut) {
+    EXPECT_EQ(printed(R"(#include <queue>
+        std::queue<int> q;
+        for (int i = 1; i <= 6; ++i) {
+            q.push(i);
+        }
+        std::cout << q.front() << q.back() << q.size();
+        q.pop();
+        q.pop();
+        q.push(7);
+        while (!q.empty()) {
+            std::cout << q.front();
+            q.pop();
+        }
+    )",
+                      cpp17),
+              "16634567");
+}
+
+TEST(Modern, QueuePopDestroysTheFront) {
+    EXPECT_EQ(printed(R"(#include <queue>
+        struct D { int id; D(int i) : id(i) {} ~D() { std::cout << "~" << id; } };
+        {
+            std::queue<D> q;
+            q.push(D(1));
+            q.push(D(2));
+            std::cout << "|";
+            q.pop();
+            std::cout << "|";
+        }
+    )",
+                      cpp17),
+              "~1~2|~1|~2");
+}
+
+TEST(Modern, StackIsLastInFirstOut) {
+    EXPECT_EQ(printed(R"(#include <stack>
+        std::stack<int> s;
+        s.push(1);
+        s.push(2);
+        s.push(3);
+        std::cout << s.top() << s.size();
+        s.pop();
+        std::cout << s.top();
+    )",
+                      cpp17),
+              "332");
+}
+
+TEST(Modern, PriorityQueueTopIsTheLargest) {
+    EXPECT_EQ(printed(R"(#include <queue>
+        std::priority_queue<int> pq;
+        pq.push(3);
+        pq.push(9);
+        pq.push(1);
+        pq.push(5);
+        while (!pq.empty()) {
+            std::cout << pq.top();
+            pq.pop();
+        }
+    )",
+                      cpp17),
+              "9531");
+}
+
+TEST(Modern, PriorityQueueWithGreaterTopIsTheSmallest) {
+    // Dijkstra's open set: (cost, tile) pairs, cheapest first.
+    EXPECT_EQ(printed(R"(#include <queue>
+        std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<std::pair<int, int>>> open;
+        open.push(std::make_pair(4, 1));
+        open.push(std::make_pair(2, 7));
+        open.push(std::make_pair(2, 3));
+        open.push(std::make_pair(9, 0));
+        while (!open.empty()) {
+            std::cout << open.top().first << open.top().second << ",";
+            open.pop();
+        }
+    )",
+                      cpp17),
+              "23,27,41,90,");
+}
+
+TEST(Modern, PoppingAnEmptyQueueIsOutOfBounds) {
+    // Undefined behavior in real C++: cppi stops with E0503, as vector::back does.
+    EXPECT_EQ(runtime_error("std::queue<int> q;\nq.pop();\n", cpp17).code, DiagCode::OutOfBounds);
+    EXPECT_EQ(runtime_error("std::queue<int> q;\nint x = q.front();\n", cpp17).code, DiagCode::OutOfBounds);
+    EXPECT_EQ(runtime_error("std::stack<int> s;\nint x = s.top();\n", cpp17).code, DiagCode::OutOfBounds);
+    EXPECT_EQ(runtime_error("std::priority_queue<int> p;\np.pop();\n", cpp17).code, DiagCode::OutOfBounds);
+    auto d = runtime_error("std::queue<int> q;\nq.push(1);\nq.pop();\nq.pop();\n", cpp17);
+    EXPECT_EQ(d.code, DiagCode::OutOfBounds);
+    EXPECT_EQ(d.range.begin.line, 4);
+}
+
 TEST(Modern, ADataMemberThatIsAFunctionObjectCanBeCalled) {
     // `f(n)` inside the class and `h.f(5)`, `p->f(6)` outside call the member's operator().
     EXPECT_EQ(printed(R"(

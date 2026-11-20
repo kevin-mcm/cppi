@@ -654,6 +654,154 @@ constexpr std::string_view kSource = R"cpp(
         int capacity_;
     };
 
+    // --- Container adaptors: std::queue, std::stack, std::priority_queue -----------------
+    // front, back, top and pop on an empty adaptor are undefined in real C++;
+    // here they stop with E0503 out-of-bounds, as vector::back does.
+
+    // A ring buffer of constructed slots, so pop destroys the front at once
+    // (as std::queue over std::deque does) and is O(1).
+    template <class T>
+    class queue {
+    public:
+        queue() : data_(0), head_(0), size_(0), capacity_(0) {}
+        queue(const queue<T>& other) : data_(0), head_(0), size_(0), capacity_(0) {
+            for (int i = 0; i < other.size_; ++i) {
+                push(other.data_[(other.head_ + i) % other.capacity_]);
+            }
+        }
+        ~queue() {
+            while (size_ > 0) {
+                pop();
+            }
+            __cppi_deallocate(data_);
+        }
+        queue<T>& operator=(const queue<T>& other) {
+            if (this != &other) {
+                while (size_ > 0) {
+                    pop();
+                }
+                for (int i = 0; i < other.size_; ++i) {
+                    push(other.data_[(other.head_ + i) % other.capacity_]);
+                }
+            }
+            return *this;
+        }
+
+        bool empty() const { return size_ == 0; }
+        int size() const { return size_; }
+        T& front() {
+            __cppi_check_index(0, size_);
+            return data_[head_];
+        }
+        const T& front() const {
+            __cppi_check_index(0, size_);
+            return data_[head_];
+        }
+        T& back() {
+            __cppi_check_index(size_ - 1, size_);
+            return data_[(head_ + size_ - 1) % capacity_];
+        }
+        const T& back() const {
+            __cppi_check_index(size_ - 1, size_);
+            return data_[(head_ + size_ - 1) % capacity_];
+        }
+        void push(const T& value) {
+            if (size_ < capacity_) {
+                __cppi_construct(data_ + (head_ + size_) % capacity_, value);
+            } else {
+                // `value` may be one of the elements: copy it before the old storage goes.
+                int n = capacity_ == 0 ? 4 : capacity_ * 2;
+                T* bigger = __cppi_allocate<T>(n);
+                __cppi_construct(bigger + size_, value);
+                for (int i = 0; i < size_; ++i) {
+                    __cppi_construct_moved(bigger + i, data_[(head_ + i) % capacity_]);
+                    __cppi_destroy(data_ + (head_ + i) % capacity_);
+                }
+                __cppi_deallocate(data_);
+                data_ = bigger;
+                head_ = 0;
+                capacity_ = n;
+            }
+            ++size_;
+        }
+        void pop() {
+            __cppi_check_index(0, size_);
+            __cppi_destroy(data_ + head_);
+            head_ = (head_ + 1) % capacity_;
+            --size_;
+        }
+
+    private:
+        T* data_;
+        int head_;
+        int size_;
+        int capacity_;
+    };
+
+    template <class T>
+    class stack {
+    public:
+        bool empty() const { return c_.empty(); }
+        int size() const { return c_.size(); }
+        T& top() { return c_.back(); }
+        const T& top() const {
+            __cppi_check_index(c_.size() - 1, c_.size());
+            return c_[c_.size() - 1];
+        }
+        void push(const T& value) { c_.push_back(value); }
+        void pop() { c_.pop_back(); }
+
+    private:
+        vector<T> c_;
+    };
+
+    // A binary heap: with less, the largest element is on top.
+    template <class T, class Container = vector<T>, class Compare = less<T>>
+    class priority_queue {
+    public:
+        bool empty() const { return c_.empty(); }
+        int size() const { return c_.size(); }
+        const T& top() const {
+            __cppi_check_index(0, c_.size());
+            return c_[0];
+        }
+        void push(const T& value) {
+            c_.push_back(value);
+            int i = c_.size() - 1;
+            while (i > 0 && comp_(c_[(i - 1) / 2], c_[i])) {
+                swap(c_[(i - 1) / 2], c_[i]);
+                i = (i - 1) / 2;
+            }
+        }
+        void pop() {
+            __cppi_check_index(0, c_.size());
+            int last = c_.size() - 1;
+            swap(c_[0], c_[last]);
+            c_.pop_back();
+            int i = 0;
+            while (true) {
+                int largest = i;
+                int left = 2 * i + 1;
+                int right = left + 1;
+                if (left < last && comp_(c_[largest], c_[left])) {
+                    largest = left;
+                }
+                if (right < last && comp_(c_[largest], c_[right])) {
+                    largest = right;
+                }
+                if (largest == i) {
+                    break;
+                }
+                swap(c_[i], c_[largest]);
+                i = largest;
+            }
+        }
+
+    private:
+        Container c_;
+        Compare comp_;
+    };
+
     // --- std::map (a sorted vector of pairs) -------------------------------------------
 
     template <class K, class V>
