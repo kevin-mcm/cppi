@@ -2,7 +2,7 @@
 
 > **For agentic workers:** implement this plan task by task with the ECC orchestration commands. Run `/ecc:plan-orchestrate docs/plans/2026-11-17-conformance-library-cpp23.md` to get the ready-to-paste command for each task, then run them one at a time, in the order below:
 > - new capability (C1, C5–C7, C9–C17, C20, C21): `/ecc:orch-add-feature`;
-> - wrong behavior (C2, C4): `/ecc:orch-fix-defect`;
+> - wrong behavior (C2, C4, C4b): `/ecc:orch-fix-defect`;
 > - a working behavior that must change (C19): `/ecc:orch-change-feature`;
 > - verification only (C3): write the tests yourself. Use `/ecc:orch-fix-defect` only if one fails;
 > - phase checkpoints (C8, C18) and the 1.0.0 release (C22): by hand, following `docs/ci-cd.md`. Tagging and publishing are not delegated.
@@ -69,11 +69,11 @@ The level benchmarks use `std::vector` and `push_back`, so they measure C4's cos
 - **Cost model.** Library code runs as player code and costs operations, so keep library functions simple: the game's budgets measure them.
 - **Changelog.** Every task adds its lines under `## [Unreleased]` in `CHANGELOG.md` (Added / Changed / Fixed). The checkpoints leave them there; C22 moves them all under `## [1.0.0]`.
 - **Docs.** `docs/roadmap.md` and `docs/diagnostics.md` change with the code that changes them.
-- **Git.** One branch, `release-1.0.0`, for all three phases. The checkpoints (C8, C18) are verified commits on it, not tags. Commits follow Conventional Commits, as the user's own git identity, with no Claude attribution.
+- **Git.** One branch, `release-1.0.0`, for all three phases. The checkpoints (C8, C18) are verified commits on it, not tags. Commits follow Conventional Commits, as the user's own git identity, and end with the trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Order and dependencies
 
-- **Phase 1:** C1–C8. Independent, except that C6 needs C1 (its `priority_queue` test compares pairs) and C5's `std::less`/`std::greater`, and C8 is the phase's checkpoint.
+- **Phase 1:** C1–C8, with C4b. Independent, except that C6 needs C1 (its `priority_queue` test compares pairs), C4b and C5's `std::less`/`std::greater`, and C8 is the phase's checkpoint.
 - **Phase 2:** C9–C18. C10 and C15 need C9; C16 needs C9 and C10; C18 is the phase's checkpoint. C15 (non-type template parameters) and C17 (function types as template arguments, partial specialization) extend the template engine, so they are the phase's largest tasks.
 - **Phase 3:** C19–C22. C20 needs C19's table, member entries included; C22 is the 1.0.0 release, after all three phases.
 
@@ -86,6 +86,12 @@ The level benchmarks use `std::vector` and `push_back`, so they measure C4's cos
 **Files:** `src/library/Prelude.cpp`; `tests/unit/ModernTest.cpp`; `CHANGELOG.md`.
 
 **Interfaces:** free function templates `operator==`, `!=`, `<`, `<=`, `>`, `>=` for `pair<A, B>`, comparing `first`, then `second`, written only with `<` and `==` of the members, as the standard specifies before C++20.
+
+**Found while implementing (2026-11-20):** sema had to change first, as its own `fix(sema)` commit.
+- Operators written as function templates were never found: `free_operators` only took ordinary functions.
+- A name could not hold both ordinary functions and function templates (E0208), and `std` already has `operator<` for `string`.
+- The fix adds `TemplateEngine::function_candidates` and mixed overload sets. On a tie, an ordinary function beats a template instance.
+- It also stops repeating one missing operator inside a library function, drops E0222 after an error in a `return`, and names template operators `operator< <…>`.
 
 - [ ] **Step 1: Failing tests.**
   - `PairComparesFirstThenSecond`: `std::pair<int,int>(1,5) < std::pair<int,int>(2,0)`, `(1,5) < (1,6)`, `==`, `!=`, `>=` print `1 1 1 0 1`.
@@ -149,6 +155,22 @@ cppi-farm's `std-map` level relies on `std::map<char, Direction>::operator[]` in
   - Then `vector`. `map` is built on `vector` (`items_`), so run its tests too. `string` keeps its own `char` buffer and does not change.
 - [ ] **Step 4: Run all tests and the benchmarks** (`bench/`): a large rise in the operation counts of `push_back` loops is a regression to fix, because game budgets depend on them.
 - [ ] **Step 5: Commit** `fix(library): vector constructs and destroys only the elements it holds`.
+
+### Task C4b: class template members are instantiated only when used
+
+**Files:** `src/sema/TemplateEngine.cpp` (`instantiate_class`) and the binding of member function bodies; `tests/unit/ModernTest.cpp`; `CHANGELOG.md`.
+
+**Problem (found during C1):** instantiating a class template binds every member function body at once. C++ ([temp.inst]) instantiates a member only when it is used. So `template <class A> struct W { A v; bool operator<(const W& o) const { return v < o.v; } }; struct P { int x; }; W<P> a;` gives E0239 in cppi but compiles with g++. C6 (`priority_queue`), C16 (`tuple`) and C20 (`expected`) add class templates whose members not every type supports, so this task comes before them.
+
+A related limitation: cppi instantiates every function template candidate whose arguments deduce before choosing one, so a body that is invalid for these types reports errors even when overload resolution would not choose it. Fix it here if the same mechanism applies; otherwise record it for later.
+
+- [ ] **Step 1: Failing tests.**
+  - `AnUnusedMemberIsNotInstantiated`: the `W<P>` program compiles, and `W<int>` still compares.
+  - `AUsedMemberReportsItsError`: calling `a < b` on `W<P>` gives E0239 at the call.
+  - `std::vector<P>` and `std::map<char, P>` of a struct without `<` or `==` still compile.
+- [ ] **Step 2: Implement.** Declare the members when the class is instantiated, and bind each body on its first use (call, address taken, virtual: the vtable needs virtual members at once).
+- [ ] **Step 3: Run all tests and the benchmarks.**
+- [ ] **Step 4: Commit** `fix(sema): class template members are instantiated only when used`.
 
 ### Task C5: function objects `std::less`, `std::greater`, `std::equal_to`
 
