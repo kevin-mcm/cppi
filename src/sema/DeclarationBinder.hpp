@@ -119,6 +119,12 @@ public:
     /// constructors and destructors).
     void define_body(std::uint32_t id, const ast::FunctionDecl* decl);
 
+    /// While set, bind_record leaves the bodies of the non-virtual member
+    /// functions written in the class unbound and appends them here: a class
+    /// template instance defines each one on first use ([temp.inst]), so a
+    /// member some type does not support is an error only if it is used.
+    std::vector<std::pair<std::uint32_t, const ast::FunctionDecl*>>* deferred_bodies = nullptr;
+
 private:
     /// A resolved function signature.
     struct Signature {

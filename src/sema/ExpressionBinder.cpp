@@ -407,6 +407,9 @@ BExprPtr ExpressionBinder::make_call(const Callee& callee, std::vector<BExprPtr>
         const TypeRef result = ctx_.overloads->return_type(callee);
         return make(result, false, range, BHostCall{FunctionId{callee.id}, std::move(args)});
     }
+    if (ctx_.templates != nullptr) {
+        ctx_.templates->define_if_pending(callee.id, range);  // a class template member, on first use
+    }
     const FunctionInfo& info = ctx_.functions[callee.id];
     ctx_.called.insert(callee.id);
     BCall call;
@@ -1935,6 +1938,9 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
                     return nullptr;
                 }
                 node.loop_temps = ctx_.allocate_local(3);
+                if (ctx_.templates != nullptr) {
+                    ctx_.templates->define_if_pending(ctor, range);  // a class template member, on first use
+                }
                 return make(types.pointer_to(type, resolved->is_const), false, range, std::move(node));
             }
             auto chosen = ctx_.overloads->resolve(info.name, ctors, args, range);
@@ -1947,6 +1953,9 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
             }
             node.constructor = chosen->id;
             node.ctor_args = std::move(*prepared);
+            if (ctx_.templates != nullptr) {
+                ctx_.templates->define_if_pending(chosen->id, range);  // a class template member, on first use
+            }
         } else if (!args.empty()) {
             ctx_.report(DiagnosticFactory::no_matching_function(range, info.name, ctx_.overloads->describe(args)));
             return nullptr;
@@ -2096,6 +2105,9 @@ BExprPtr ExpressionBinder::delete_expr(const ast::DeleteExpr& d, SourceRange ran
                 node.loop_temps = ctx_.allocate_local(2);
             }
         }
+    }
+    if (node.destructor && ctx_.templates != nullptr) {
+        ctx_.templates->define_if_pending(*node.destructor, range);  // a class template member, on first use
     }
     node.pointer = std::move(pointer);
     return make(TypeTable::kVoid, false, range, std::move(node));

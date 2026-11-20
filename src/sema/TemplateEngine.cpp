@@ -189,11 +189,46 @@ std::optional<TypeRef> TemplateEngine::instantiate_class(std::uint32_t id, const
         self.kind = SymbolKind::Type;
         self.type = type;
         ctx_.symbols.current().add(def.name, self);
+        // Member bodies are bound on first use ([temp.inst]): see define_if_pending.
+        std::vector<std::pair<std::uint32_t, const ast::FunctionDecl*>> deferred;
+        auto* const outer = ctx_.declarations->deferred_bodies;
+        ctx_.declarations->deferred_bodies = &deferred;
         ctx_.declarations->bind_record(def, def.name_range);
+        ctx_.declarations->deferred_bodies = outer;
+        for (const auto& [function, member] : deferred) {
+            pending_[function] = PendingMember{id, args, type, member};
+        }
         return type;
     });
     forget_if_failed(t.classes, args, errors_before);
     return result;
+}
+
+void TemplateEngine::define_if_pending(std::uint32_t function, SourceRange site) {
+    // During a trial (muted) the body waits for a real use, which reports its errors.
+    if (ctx_.sink.muted()) {
+        return;
+    }
+    auto it = pending_.find(function);
+    if (it == pending_.end()) {
+        return;
+    }
+    const PendingMember member = std::move(it->second);
+    pending_.erase(it);
+    const TemplateInfo& t = templates_[member.template_id];
+    const auto& def = std::get<ast::RecordDef>(t.inner->node);
+    std::optional<LibraryScope> library;
+    if (t.library) {
+        library.emplace(ctx_, site, "std::" + display(t, member.args));
+    }
+    in_template_scope(t, member.args, [&] {
+        Symbol self;  // the injected class name, as when the class was instantiated
+        self.kind = SymbolKind::Type;
+        self.type = member.type;
+        ctx_.symbols.current().add(def.name, self);
+        ctx_.declarations->define_body(function, member.decl);
+        return true;
+    });
 }
 
 std::optional<TypeRef> TemplateEngine::instantiate_type(const ast::TypeSpec& spec) {

@@ -1567,6 +1567,12 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
     (void)ok;
 
     for (const auto& [id, decl] : bodies) {
+        // Virtual functions are in the dispatch table, and implicit members
+        // (decl == nullptr) are needed by the class itself: defined now.
+        if (deferred_bodies != nullptr && decl != nullptr && !ctx_.functions[id].is_virtual) {
+            deferred_bodies->emplace_back(id, decl);
+            continue;
+        }
         define_body(id, decl);
     }
 }

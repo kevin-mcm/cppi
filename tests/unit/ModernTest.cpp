@@ -705,3 +705,43 @@ TEST(Modern, AReturnWithAnErrorIsNotAMissingReturn) {
     ASSERT_EQ(w.compiled.diagnostics.size(), 1U);
     EXPECT_EQ(w.compiled.diagnostics[0].code, DiagCode::MissingReturn);
 }
+
+TEST(Modern, AnUnusedMemberIsNotInstantiated) {
+    // [temp.inst]: a class template instance defines a member function only
+    // when it is used, so W<P> exists although W's operator< cannot compare P.
+    EXPECT_EQ(printed(R"(
+        template <class A> struct W { A v; bool operator<(const W& o) const { return v < o.v; } };
+        struct P { int x; };
+        W<P> a;
+        W<int> b;
+        b.v = 0;
+        W<int> c;
+        c.v = 1;
+        std::vector<P> ps;
+        ps.push_back(P());
+        std::map<char, P> m;
+        m['a'].x = 3;
+        std::cout << (b < c) << ps.size() << m['a'].x;
+    )",
+                      cpp17),
+              "113");
+}
+
+TEST(Modern, AUsedMemberReportsItsError) {
+    // Using the member reports its error, at the use for the standard library.
+    auto r = run(R"(template <class A> struct W { A v; bool operator<(const W& o) const { return v < o.v; } };
+struct P { int x; };
+W<P> a;
+W<P> b;
+bool less = a < b;
+)",
+                 cpp17);
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("type"), "P");
+
+    auto resize = run("struct N { int x; N(int v) : x(v) {} };\nstd::vector<N> v;\nv.resize(3);\n", cpp17);
+    ASSERT_FALSE(resize.compiled.ok());
+    EXPECT_EQ(resize.compiled.diagnostics[0].code, DiagCode::NoDefaultConstructor);
+    EXPECT_EQ(resize.compiled.diagnostics[0].range.begin.line, 3);
+}

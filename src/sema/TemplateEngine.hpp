@@ -81,7 +81,22 @@ public:
     /// The class template and arguments `type` was instantiated from.
     [[nodiscard]] std::optional<std::pair<std::uint32_t, std::vector<TypeRef>>> origin(TypeRef type) const;
 
+    /// Binds the body of `function` if it is a member of a class template
+    /// instance not defined yet (members are defined on first use); `site`
+    /// is the use, where errors inside the standard library are reported.
+    void define_if_pending(std::uint32_t function, SourceRange site);
+
 private:
+    /// A member function of a class template instance whose body is bound on first use.
+    struct PendingMember {
+        std::uint32_t template_id = 0;            ///< the class template
+        std::vector<TypeRef> args;                ///< its arguments
+        TypeRef type = 0;                         ///< the instance
+        const ast::FunctionDecl* decl = nullptr;  ///< the member's declaration
+    };
+    /// Function id -> its pending body.
+    std::map<std::uint32_t, PendingMember> pending_;
+
     /// Template parameter name -> deduced type.
     using Bindings = std::map<std::string, TypeRef, std::less<>>;
 
