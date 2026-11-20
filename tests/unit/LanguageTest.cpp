@@ -17,6 +17,7 @@ using namespace cppi;
 using cppi_test::Calls;
 using cppi_test::compile_error;
 using cppi_test::output;
+using cppi_test::printed;
 using cppi_test::run;
 using cppi_test::runtime_error;
 using cppi_test::standard;
@@ -496,4 +497,74 @@ TEST(Language, FeatureGatingAppliesToEveryStatement) {
     EXPECT_EQ(
         output("int a[3] = {1, 2, 3}; int s = 0; for (int v : a) s += v; take_int(s);", standard(Standard::Cpp11)),
         Calls{"take_int(6)"});
+}
+
+TEST(Language, AVirtualCallInABaseConstructorCallsTheBase) {
+    // [class.cdtor]: while B's constructor runs, the object is a B.
+    EXPECT_EQ(printed(R"(
+        struct B { B() { std::cout << name(); } virtual ~B() {} virtual const char* name() { return "B"; } };
+        struct D : B { const char* name() override { return "D"; } };
+        D d;
+        std::cout << d.name();
+    )",
+                      standard(Standard::Cpp11)),
+              "BD");
+}
+
+TEST(Language, AVirtualCallInABaseDestructorCallsTheBase) {
+    // D's call first; then, once D's destructor has finished, the object is a B again.
+    EXPECT_EQ(printed(R"(
+        struct B { virtual ~B() { std::cout << name(); } virtual const char* name() { return "B"; } };
+        struct D : B { const char* name() override { return "D"; } };
+        {
+            D d;
+            std::cout << d.name();
+        }
+    )",
+                      standard(Standard::Cpp11)),
+              "DB");
+}
+
+TEST(Language, ACallThroughAMemberFunctionInTheConstructorAlsoCallsTheBase) {
+    EXPECT_EQ(printed(R"(
+        struct B {
+            B() { hello(); }
+            virtual ~B() {}
+            void hello() { std::cout << name(); }
+            virtual const char* name() { return "B"; }
+        };
+        struct D : B { const char* name() override { return "D"; } };
+        D d;
+    )",
+                      standard(Standard::Cpp11)),
+              "B");
+    // Each level of a chain sees its own class, constructing and destroying.
+    EXPECT_EQ(printed(R"(
+        struct A { A() { std::cout << name(); } virtual ~A() { std::cout << name(); } virtual const char* name() { return "A"; } };
+        struct B : A { B() { std::cout << name(); } ~B() { std::cout << name(); } const char* name() override { return "B"; } };
+        struct C : B { const char* name() override { return "C"; } };
+        {
+            C c;
+            std::cout << "|";
+        }
+    )",
+                      standard(Standard::Cpp11)),
+              "AB|BA");
+}
+
+TEST(Language, WithVirtualBasesTheCompleteObjectDispatchesToItsOverriders) {
+    // Base constructors make the object their own class while they run; once
+    // it is built, also with virtual bases, it is the complete class again.
+    EXPECT_EQ(printed(R"(
+        struct A { A() {} virtual ~A() {} virtual int f() { return 1; } };
+        struct B : virtual A { B() {} int f() override { return 2; } };
+        struct C : B { C() {} };
+        C c;
+        A& a = c;
+        A* p = new C();
+        std::cout << a.f() << c.f() << p->f();
+        delete p;
+    )",
+                      standard(Standard::Cpp11)),
+              "222");
 }

@@ -405,6 +405,9 @@ struct BInitHeaders {
     BExprPtr target;
     /// Its class.
     std::uint32_t record = 0;
+    /// Bookkeeping of [class.cdtor] (a constructor or destructor making the
+    /// object its own class), which the player did not write: not charged.
+    bool unpriced = false;
 };
 
 /// A sequence of statements with the destructors to run when it is left.

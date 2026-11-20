@@ -343,6 +343,10 @@ bool InitializerBinder::construct(BExprPtr target, TypeRef type, std::vector<BEx
     if (!init_virtual_bases(*target, record, range, out)) {
         return false;
     }
+    // Constructors set the headers to their own class as they run ([class.cdtor]);
+    // with virtual bases they cannot (the layout is the complete object's), so
+    // the complete object's headers are written again once it is built.
+    BExprPtr restore = info.has_header && !info.virtual_base_offsets.empty() ? LvalueCloner::clone(*target) : nullptr;
     std::vector<BExprPtr> call_args;
     call_args.push_back(ExpressionBinder::make(types.pointer_to(type), false, range, BAddressOf{std::move(target)}));
     for (auto& a : *prepared) {
@@ -350,6 +354,9 @@ bool InitializerBinder::construct(BExprPtr target, TypeRef type, std::vector<BEx
     }
     auto call = ctx_.expressions->make_call(callee, std::move(call_args), range);
     out.push_back(stmt(range, BExprStmt{std::move(*call)}));
+    if (restore) {
+        out.push_back(stmt(range, BInitHeaders{std::move(restore), record, true}));
+    }
     return true;
 }
 
@@ -416,7 +423,12 @@ bool InitializerBinder::default_initialize(BExprPtr target, TypeRef type, bool f
         return false;
     }
     // Implicit default constructor: bases, then members with initializers or constructors.
-    for (const BaseInfo& base : info.bases) {
+    // Once the bases are built the object is of this class again ([class.cdtor]):
+    // their constructors set the headers to their own classes.
+    const bool own_headers = info.has_header && !info.bases.empty() && (complete || info.virtual_base_offsets.empty());
+    const std::uint32_t own_record = types.info(type).decl;
+    const auto bases = info.bases;  // copy: binding may add types
+    for (const BaseInfo& base : bases) {
         if (base.is_virtual) {
             continue;  // initialized once, by the complete object
         }
@@ -427,6 +439,9 @@ bool InitializerBinder::default_initialize(BExprPtr target, TypeRef type, bool f
         if (!ok) {
             return false;
         }
+    }
+    if (own_headers) {
+        out.push_back(stmt(range, BInitHeaders{LvalueCloner::clone(*target), own_record, true}));
     }
     const auto fields = info.fields;
     for (const FieldInfo& field : fields) {
@@ -626,6 +641,12 @@ bool InitializerBinder::construct_members(std::uint32_t record, const ast::Funct
         } else {
             ok = default_initialize(std::move(slot), base.type, false, range, out, false) && ok;
         }
+    }
+    // The bases are built: from here (members, body) the object is of this
+    // class, and virtual calls reach this class's overriders ([class.cdtor]).
+    // Not with virtual bases, whose place depends on the complete object.
+    if (info.has_header && info.virtual_base_offsets.empty()) {
+        out.push_back(stmt(range, BInitHeaders{LvalueCloner::clone(*self), record, true}));
     }
     for (const FieldInfo& field : info.fields) {
         const ast::MemberInit* init = take(field.name);

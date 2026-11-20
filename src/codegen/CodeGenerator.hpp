@@ -172,6 +172,9 @@ private:
     // Per function
     /// Id of the function being generated.
     std::uint32_t current_ = 0;
+    /// While true, instructions get no source location: they cost nothing and
+    /// start no statement (bookkeeping the player did not write).
+    bool unpriced_ = false;
     /// Instruction index of each label (-1 while unbound).
     std::vector<std::int64_t> labels_;
     std::vector<std::pair<std::uint32_t, std::uint32_t>> fixups_;  ///< (instruction, label)

@@ -1002,6 +1002,16 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
         for (auto& cleanup : ctx_.statements->release_temporaries(0)) {
             body.statements.push_back(std::move(cleanup));
         }
+    } else if (info.is_destructor && info.record) {
+        // The derived class's destructor has finished: the object is of this
+        // class again, and virtual calls reach its overriders ([class.cdtor]).
+        // Not with virtual bases, whose place depends on the complete object.
+        const RecordInfo& r = types.record_at(*info.record);
+        if (r.has_header && r.virtual_base_offsets.empty()) {
+            if (auto self = ctx_.expressions->this_object(info.range)) {
+                body.statements.push_back(wrap(info.range, BInitHeaders{std::move(self), *info.record, true}));
+            }
+        }
     }
     const std::size_t errors_before = ctx_.sink.errors();
     if (decl != nullptr && decl->body) {

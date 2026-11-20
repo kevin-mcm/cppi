@@ -328,9 +328,12 @@ void CodeGenerator::statement(const BStmt& s) {
                        adjust(-1);
                    },
                    [&](const BInitHeaders& h) {
+                       const bool previous = unpriced_;
+                       unpriced_ = unpriced_ || h.unpriced;
                        address(*h.target);
                        emit(OpCode::InitHeaders, range, h.record);
                        adjust(-1);
+                       unpriced_ = previous;
                    },
                    [&](const BBlock& b) { block(b); },
                    [&](const BIf& i) {
@@ -1102,7 +1105,19 @@ void CodeGenerator::new_object(const BNew& n, const BExpr& e) {
             adjust(-1);
         }
         if (n.constructor) {
+            // With virtual bases the constructors cannot keep the headers right
+            // ([class.cdtor]): the complete object's are written again after it.
+            const bool restore = n.record && !out_.records[*n.record].header_offsets.empty() &&
+                                 !out_.records[*n.record].virtual_bases.empty();
+            if (restore) {
+                emit(OpCode::Dup, SourceRange{});  // no location: bookkeeping, not charged
+                adjust(1);
+            }
             emit(OpCode::Call, range, *n.constructor, 1);
+            if (restore) {
+                emit(OpCode::InitHeaders, SourceRange{}, *n.record);
+                adjust(-1);
+            }
         } else {
             emit(OpCode::Pop, range);
         }
@@ -1153,6 +1168,15 @@ void CodeGenerator::new_object(const BNew& n, const BExpr& e) {
         const auto argc = static_cast<std::uint16_t>(1 + n.ctor_args.size());
         emit(OpCode::Call, range, *n.constructor, argc);
         adjust(-static_cast<long>(argc));
+        // With virtual bases the constructors cannot keep the headers right
+        // ([class.cdtor]): the complete object's are written again after it.
+        if (n.record && !out_.records[*n.record].header_offsets.empty() &&
+            !out_.records[*n.record].virtual_bases.empty()) {
+            emit(OpCode::Dup, SourceRange{});  // no location: bookkeeping, not charged
+            adjust(1);
+            emit(OpCode::InitHeaders, SourceRange{}, *n.record);
+            adjust(-1);
+        }
     }
 }
 
@@ -1288,7 +1312,7 @@ std::uint16_t CodeGenerator::kind_of(ScalarKind kind) const {
 std::uint32_t CodeGenerator::emit(OpCode op, SourceRange range, std::uint32_t operand, std::uint16_t argc) {
     const auto at = static_cast<std::uint32_t>(out_.code.size());
     out_.code.push_back(Instruction{op, 0, argc, operand});
-    out_.locations.push_back(program_.functions[current_].library ? SourceRange{} : range);
+    out_.locations.push_back(program_.functions[current_].library || unpriced_ ? SourceRange{} : range);
     out_.statement_starts.push_back(false);
     return at;
 }
@@ -1298,7 +1322,7 @@ std::uint32_t CodeGenerator::emit_wide(OpCode op, SourceRange range, std::uint32
     ins.set_wide(wide);
     const auto at = static_cast<std::uint32_t>(out_.code.size());
     out_.code.push_back(ins);
-    out_.locations.push_back(program_.functions[current_].library ? SourceRange{} : range);
+    out_.locations.push_back(program_.functions[current_].library || unpriced_ ? SourceRange{} : range);
     out_.statement_starts.push_back(false);
     return at;
 }
