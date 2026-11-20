@@ -812,6 +812,15 @@ BExprPtr TemplateEngine::call(const ast::CallExpr& call, std::vector<BExprPtr> a
             return ExpressionBinder::constant(TypeTable::kBool, *answer ? 1 : 0, range);
         }
     }
+    // The prelude's raw storage (std::vector): `__cppi_allocate<T>(n)`, not constructed.
+    if (call.callee == "__cppi_allocate" && call.scope.empty() && call.template_args.size() == 1 && args.size() == 1 &&
+        ctx_.library_depth > 0) {
+        auto resolved = ctx_.type_resolver->resolve(call.template_args.front());
+        if (!resolved || resolved->is_auto) {
+            return nullptr;
+        }
+        return ctx_.expressions->allocate(resolved->type, std::move(args.front()), range);
+    }
     Symbol* symbol =
         call.scope.empty() ? ctx_.symbols.lookup(call.callee) : ctx_.symbols.lookup_qualified(call.scope, call.callee);
     // Member function templates: `Factory::make<int>()`, or `get<int>(x)` inside the class.

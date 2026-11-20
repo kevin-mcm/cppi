@@ -10,6 +10,7 @@
 #include "sema/ExpressionBinder.hpp"
 #include "sema/InitializerBinder.hpp"
 #include "sema/Intrinsics.hpp"
+#include "sema/LvalueCloner.hpp"
 #include "sema/TemplateEngine.hpp"
 #include "sema/TypeResolver.hpp"
 #include "support/DiagnosticFactory.hpp"
@@ -277,7 +278,68 @@ void StatementBinder::bind(const ast::Stmt& stmt, std::vector<BStmt>*& out) {
     }
 }
 
+bool StatementBinder::bind_in_place(const ast::CallExpr& call, SourceRange range, std::vector<BStmt>& out) {
+    const bool construct = call.callee == "__cppi_construct" || call.callee == "__cppi_construct_moved";
+    // __cppi_construct(p) value-initializes *p; the others take exactly their arguments.
+    const bool arity = call.callee == "__cppi_construct" ? (call.args.size() == 1 || call.args.size() == 2)
+                                                         : call.args.size() == (construct ? 2U : 1U);
+    if (ctx_.library_depth == 0 || !call.scope.empty() || !call.template_args.empty() ||
+        (!construct && call.callee != "__cppi_destroy") || !arity) {
+        return false;
+    }
+    TypeTable& types = ctx_.types;
+    auto pointer = ctx_.expressions->bind(call.args.front());
+    if (!pointer) {
+        return true;
+    }
+    pointer = ctx_.expressions->to_rvalue(std::move(pointer));
+    if (!types.is_pointer(pointer->type)) {
+        ctx_.report(DiagnosticFactory::invalid_operands(range, call.callee, types.name(pointer->type), std::nullopt));
+        return true;
+    }
+    const TypeRef type = types.info(pointer->type).target;
+    // The pointer (`data_ + i`) is kept in a frame cell, so the target `*cell`
+    // can be cloned: constructing and destroying refer to it more than once.
+    const TypeRef pointer_type = pointer->type;
+    const std::uint32_t cell = ctx_.allocate_local(1);
+    const auto slot = [&] { return ExpressionBinder::make(pointer_type, true, range, BTemp{cell, 1, nullptr, {}}); };
+    out.push_back(wrap(range, BStore{slot(), std::move(pointer)}));
+    BDeref deref;
+    deref.cells = types.cells(type);
+    deref.pointer = ctx_.expressions->to_rvalue(slot());
+    auto target = ExpressionBinder::make(type, true, range, std::move(deref));
+    if (!construct) {
+        ctx_.initializers->destroy(LvalueCloner::clone(*target), type, out);
+        out.push_back(wrap(range, BUninit{std::move(target), std::max<std::uint32_t>(1, types.cells(type))}));
+        return true;
+    }
+    if (call.args.size() == 1) {
+        ctx_.initializers->construct(std::move(target), type, {}, range, out);  // value-initialized: T()
+        return true;
+    }
+    const std::size_t mark = ctx_.fn->temporaries.size();
+    auto value = ctx_.expressions->bind(call.args.back());
+    if (!value) {
+        drop_temporaries(mark);
+        return true;
+    }
+    if (call.callee == "__cppi_construct_moved" && value->lvalue) {
+        value->expiring = true;  // like std::move(value): T(T&&) if T has one
+    }
+    std::vector<BExprPtr> args;
+    args.push_back(std::move(value));
+    ctx_.initializers->construct(std::move(target), type, std::move(args), range, out);
+    for (auto& cleanup : release_temporaries(mark)) {
+        out.push_back(std::move(cleanup));
+    }
+    return true;
+}
+
 void StatementBinder::bind_expression(const ast::ExprStmt& s, SourceRange range, std::vector<BStmt>& out) {
+    if (const auto* call = std::get_if<ast::CallExpr>(&s.expr.node);
+        call != nullptr && bind_in_place(*call, range, out)) {
+        return;
+    }
     const std::size_t mark = ctx_.fn->temporaries.size();
     auto e = ctx_.expressions->bind(s.expr, ExpressionBinder::Use::Statement);
     if (!e) {

@@ -706,6 +706,86 @@ TEST(Modern, AReturnWithAnErrorIsNotAMissingReturn) {
     EXPECT_EQ(w.compiled.diagnostics[0].code, DiagCode::MissingReturn);
 }
 
+TEST(Modern, AVectorDoesNotConstructItsCapacity) {
+    EXPECT_EQ(printed(R"(
+        struct C { C() { std::cout << "c"; } };
+        std::vector<C> v;
+        v.reserve(8);
+        std::cout << v.size() << v.capacity();
+    )",
+                      cpp17),
+              "08");
+}
+
+TEST(Modern, AVectorNeedsNoDefaultConstructor) {
+    EXPECT_EQ(printed(R"(
+        struct N { int x; N(int v) : x(v) {} };
+        std::vector<N> v;
+        v.push_back(N(1));
+        v.push_back(N(2));
+        std::cout << v[0].x << v[1].x << v.size();
+    )",
+                      cpp17),
+              "122");
+}
+
+TEST(Modern, PopBackAndClearDestroyElements) {
+    // Each temporary D(i) dies after its push_back; pop_back and clear destroy
+    // the elements they remove, and the vector's end has nothing left to destroy.
+    EXPECT_EQ(printed(R"(
+        struct D { int id; D(int i) : id(i) {} ~D() { std::cout << "~" << id; } };
+        {
+            std::vector<D> v;
+            v.reserve(3);
+            v.push_back(D(1));
+            v.push_back(D(2));
+            v.push_back(D(3));
+            std::cout << "|";
+            v.pop_back();
+            std::cout << "|";
+            v.clear();
+            std::cout << "|";
+        }
+    )",
+                      cpp17),
+              "~1~2~3|~3|~1~2|");
+}
+
+TEST(Modern, GrowingMovesOrCopiesEachElementOnce) {
+    // 5 copies made by push_back of an lvalue, then 4 relocations at the
+    // 4 -> 8 growth: moves, as the move constructor is noexcept.
+    EXPECT_EQ(printed(R"(
+        int copies = 0;
+        int moves = 0;
+        struct M { M() {} M(const M&) { ++copies; } M(M&&) noexcept { ++moves; } };
+        std::vector<M> v;
+        v.reserve(4);
+        M m;
+        for (int i = 0; i < 5; ++i) {
+            v.push_back(m);
+        }
+        std::cout << copies << moves << (copies + moves);
+    )",
+                      cpp17),
+              "549");
+}
+
+TEST(Modern, AReferenceIntoAVectorDiesWhenItGrows) {
+    // cppi-farm's iterator-invalidation level: growing frees the old storage.
+    auto d = runtime_error(R"(std::vector<int> v;
+v.push_back(1);
+int& r = v[0];
+v.push_back(2);
+v.push_back(3);
+v.push_back(4);
+v.push_back(5);
+int x = r;
+)",
+                           cpp17);
+    EXPECT_EQ(d.code, DiagCode::UseAfterFree);
+    EXPECT_EQ(d.range.begin.line, 8);
+}
+
 TEST(Modern, AnUnusedMemberIsNotInstantiated) {
     // [temp.inst]: a class template instance defines a member function only
     // when it is used, so W<P> exists although W's operator< cannot compare P.

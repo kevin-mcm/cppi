@@ -8,6 +8,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
 
 ### Fixed
+- `std::vector` constructs and destroys only the elements it holds, as a real one does:
+  - `reserve` constructs nothing;
+  - `push_back` needs no default constructor;
+  - `pop_back`, `clear`, `erase`, a shrinking `resize` and the vector's own end run the elements' destructors;
+  - growing moves each element once (copies it without a move constructor), even when the pushed value is one of the elements.
+  - `resize(n)` value-initializes the new elements, and `resize(n, value)` is new.
+  - Operation counts do not change.
 - A member function of a class template instance is defined only when it is used ([temp.inst]). `template <class A> struct W { bool operator<(const W&) const; ... }; W<P> a;` compiles although `P` has no `<`. Calling the member still reports the error, at the player's call when it is in the standard library. For example, `std::vector<N>::resize(3)` without `N()` gives E0232 at that line. Virtual functions are still defined with the class.
 - A virtual call made while a base class's constructor or destructor runs calls that base's version, not the derived class's ([class.cdtor]). This holds for direct calls and for calls through a member function. `struct B { B() { std::cout << name(); } ... }; struct D : B { ... }; D d;` prints `B`, not `D`. The bookkeeping is not charged, so operation counts do not change. Classes with virtual bases keep the old behavior while they are being built or destroyed; once built, they dispatch as before.
 - Operators written as function templates (`template <class A, class B> bool operator<(const Pr<A, B>&, const Pr<A, B>&)`) are found and deduced from the operands, also from the namespace of the operands' class. They gave E0239 `no-operator`.

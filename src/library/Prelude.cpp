@@ -486,27 +486,30 @@ constexpr std::string_view kSource = R"cpp(
     template <class T>
     class vector {
     public:
+        // The storage holds capacity_ slots; only the first size_ are
+        // constructed (__cppi_construct), and each is destroyed when removed
+        // (__cppi_destroy), as in a real std::vector.
         vector() : data_(0), size_(0), capacity_(0) {}
         vector(int n) : data_(0), size_(0), capacity_(0) { resize(n); }
-        vector(int n, const T& value) : data_(0), size_(0), capacity_(0) {
-            reserve(n);
-            for (int i = 0; i < n; ++i) {
-                push_back(value);
-            }
-        }
+        vector(int n, const T& value) : data_(0), size_(0), capacity_(0) { resize(n, value); }
         vector(const vector<T>& other) : data_(0), size_(0), capacity_(0) {
             reserve(other.size_);
             for (int i = 0; i < other.size_; ++i) {
-                push_back(other.data_[i]);
+                __cppi_construct(data_ + i, other.data_[i]);
+                ++size_;
             }
         }
-        ~vector() { delete[] data_; }
+        ~vector() {
+            clear();
+            __cppi_deallocate(data_);
+        }
         vector<T>& operator=(const vector<T>& other) {
             if (this != &other) {
                 clear();
                 reserve(other.size_);
                 for (int i = 0; i < other.size_; ++i) {
-                    push_back(other.data_[i]);
+                    __cppi_construct(data_ + i, other.data_[i]);
+                    ++size_;
                 }
             }
             return *this;
@@ -551,43 +554,52 @@ constexpr std::string_view kSource = R"cpp(
         const T* end() const { return data_ + size_; }
 
         void push_back(const T& value) {
-            if (size_ == capacity_) {
-                reserve(capacity_ == 0 ? 4 : capacity_ * 2);
+            if (size_ < capacity_) {
+                __cppi_construct(data_ + size_, value);
+            } else {
+                // `value` may be one of the elements: copy it before the old storage goes.
+                T* bigger = __cppi_allocate<T>(capacity_ == 0 ? 4 : capacity_ * 2);
+                __cppi_construct(bigger + size_, value);
+                relocate(bigger, capacity_ == 0 ? 4 : capacity_ * 2);
             }
-            data_[size_] = value;
             ++size_;
         }
         void pop_back() {
             __cppi_check_index(size_ - 1, size_);
             --size_;
+            __cppi_destroy(data_ + size_);
         }
-        void clear() { size_ = 0; }
-        void resize(int n) {
-            reserve(n);
-            for (int i = size_; i < n; ++i) {
-                data_[i] = T();
+        void clear() {
+            for (int i = 0; i < size_; ++i) {
+                __cppi_destroy(data_ + i);
             }
-            size_ = n;
+            size_ = 0;
+        }
+        void resize(int n) {
+            shrink(n);
+            reserve(n);
+            for (; size_ < n; ++size_) {
+                __cppi_construct(data_ + size_);  // value-initialized: T()
+            }
+        }
+        void resize(int n, const T& value) {
+            shrink(n);
+            reserve(n);
+            for (; size_ < n; ++size_) {
+                __cppi_construct(data_ + size_, value);
+            }
         }
         void reserve(int n) {
-            if (n <= capacity_) {
-                return;
+            if (n > capacity_) {
+                relocate(__cppi_allocate<T>(n), n);
             }
-            T* bigger = new T[n];
-            for (int i = 0; i < size_; ++i) {
-                bigger[i] = data_[i];
-            }
-            delete[] data_;
-            data_ = bigger;
-            capacity_ = n;
         }
         T* insert(T* position, const T& value) {
             int index = position - data_;
             push_back(value);
-            for (int i = size_ - 1; i > index; --i) {
-                data_[i] = data_[i - 1];
+            for (int i = size_ - 1; i > index; --i) {  // rotate the new element into place
+                swap(data_[i], data_[i - 1]);
             }
-            data_[index] = value;
             return data_ + index;
         }
         T* erase(T* position) {
@@ -597,10 +609,31 @@ constexpr std::string_view kSource = R"cpp(
                 data_[i] = data_[i + 1];
             }
             --size_;
+            __cppi_destroy(data_ + size_);
             return data_ + index;
         }
 
     private:
+        // Moves the elements into `bigger` (n slots) and frees the old storage.
+        void relocate(T* bigger, int n) {
+            for (int i = 0; i < size_; ++i) {
+                __cppi_construct_moved(bigger + i, data_[i]);
+                __cppi_destroy(data_ + i);
+            }
+            __cppi_deallocate(data_);
+            data_ = bigger;
+            capacity_ = n;
+        }
+        // Destroys the elements from n on.
+        void shrink(int n) {
+            for (int i = n; i < size_; ++i) {
+                __cppi_destroy(data_ + i);
+            }
+            if (n < size_) {
+                size_ = n;
+            }
+        }
+
         T* data_;
         int size_;
         int capacity_;

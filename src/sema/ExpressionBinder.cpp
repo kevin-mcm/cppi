@@ -688,6 +688,10 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         }
         return ctx_.templates->call(c, std::move(*args), range);
     }
+    // The prelude's raw storage (std::vector): freed without destructors.
+    if (c.callee == "__cppi_deallocate" && c.scope.empty() && c.args.size() == 1 && ctx_.library_depth > 0) {
+        return deallocate(bind(c.args.front()), range);
+    }
 
     if (!c.scope.empty() && qualified == nullptr) {
         // `Base::method(...)`: a non-virtual call to a base class member.
@@ -2080,6 +2084,38 @@ BExprPtr ExpressionBinder::lambda(const ast::LambdaExpr& l, SourceRange range) {
     auto e = make(*closure, true, range, std::move(temp));
     e->expiring = true;
     return e;
+}
+
+BExprPtr ExpressionBinder::allocate(TypeRef type, BExprPtr count, SourceRange range) {
+    TypeTable& types = ctx_.types;
+    if (!count) {
+        return nullptr;
+    }
+    auto n = convert_to(to_rvalue(std::move(count)), TypeTable::kLong);
+    if (!n) {
+        return nullptr;
+    }
+    BNew node;  // no constructor, no headers: __cppi_construct builds each element
+    node.elem_cells = std::max<std::uint32_t>(1, types.cells(type));
+    node.count = std::move(n);
+    return make(types.pointer_to(type), false, range, std::move(node));
+}
+
+BExprPtr ExpressionBinder::deallocate(BExprPtr pointer, SourceRange range) {
+    TypeTable& types = ctx_.types;
+    if (!pointer) {
+        return nullptr;
+    }
+    pointer = to_rvalue(std::move(pointer));
+    if (!types.is_pointer(pointer->type)) {
+        report_invalid_operands("__cppi_deallocate", *pointer, nullptr, range);
+        return nullptr;
+    }
+    BDelete node;  // no destructor: __cppi_destroy ran it on each element still alive
+    node.array = true;
+    node.elem_cells = std::max<std::uint32_t>(1, types.cells(types.info(pointer->type).target));
+    node.pointer = std::move(pointer);
+    return make(TypeTable::kVoid, false, range, std::move(node));
 }
 
 BExprPtr ExpressionBinder::delete_expr(const ast::DeleteExpr& d, SourceRange range) {

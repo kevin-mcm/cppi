@@ -104,6 +104,13 @@ public:
     /// `Point(1, 2)`: a temporary object built by a constructor.
     [[nodiscard]] BExprPtr construct_temporary(TypeRef type, std::vector<BExprPtr> args, SourceRange range);
 
+    /// `__cppi_allocate<T>(n)` (prelude only): storage for `n` objects of
+    /// `type`, not constructed, tracked like `new T[n]` (leaks, double frees).
+    [[nodiscard]] BExprPtr allocate(TypeRef type, BExprPtr count, SourceRange range);
+    /// `__cppi_deallocate(p)` (prelude only): frees storage from allocate()
+    /// without running destructors.
+    [[nodiscard]] BExprPtr deallocate(BExprPtr pointer, SourceRange range);
+
     // Small node builders shared with the other binders.
     /// A bound expression of `type` holding `node`.
     [[nodiscard]] static BExprPtr make(TypeRef type, bool lvalue, SourceRange range, auto node) {
