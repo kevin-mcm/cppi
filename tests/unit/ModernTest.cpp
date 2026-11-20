@@ -825,3 +825,22 @@ bool less = a < b;
     EXPECT_EQ(resize.compiled.diagnostics[0].code, DiagCode::NoDefaultConstructor);
     EXPECT_EQ(resize.compiled.diagnostics[0].range.begin.line, 3);
 }
+
+TEST(Modern, SortWithStdGreater) {
+    EXPECT_EQ(printed(R"(#include <functional>
+        std::vector<int> v;
+        v.push_back(2);
+        v.push_back(5);
+        v.push_back(1);
+        std::sort(v.begin(), v.end(), std::greater<int>());
+        std::cout << v[0] << v[1] << v[2] << " ";
+        std::sort(v.begin(), v.end(), std::less<int>());
+        std::cout << v[0] << v[1] << v[2] << " ";
+        std::less<int> lt;
+        std::equal_to<char> eq;
+        std::greater<std::pair<int, int>> gp;
+        std::cout << lt(1, 2) << lt(2, 1) << eq('a', 'a') << gp(std::make_pair(2, 0), std::make_pair(1, 9));
+    )",
+                      cpp17),
+              "521 125 1011");
+}

@@ -151,6 +151,21 @@ constexpr std::string_view kSource = R"cpp(
         return !(x < y);
     }
 
+    // --- Function objects (<functional>) ------------------------------------------------
+
+    template <class T>
+    struct less {
+        bool operator()(const T& a, const T& b) const { return a < b; }
+    };
+    template <class T>
+    struct greater {
+        bool operator()(const T& a, const T& b) const { return a > b; }
+    };
+    template <class T>
+    struct equal_to {
+        bool operator()(const T& a, const T& b) const { return a == b; }
+    };
+
     // --- Algorithms on ranges given by pointers --------------------------------------
 
     template <class T>

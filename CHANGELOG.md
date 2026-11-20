@@ -5,6 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Function objects `std::less<T>`, `std::greater<T>` and `std::equal_to<T>` (`<functional>`), which compare with `<`, `>` and `==`. For example, `std::sort(v.begin(), v.end(), std::greater<int>())` sorts in descending order.
 - `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
 
 ### Fixed
