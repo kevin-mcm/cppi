@@ -247,6 +247,15 @@ No version bump, tag or release. The changelog lines stay under `## [Unreleased]
 - [ ] Full verification as listed in C22, and the benchmarks compared with 0.3.1: C4 changes `vector`'s operation counts, which game budgets depend on.
 - [ ] Commit `docs(roadmap): phase 1 library names`.
 
+**Done (2026-11-20), at `0803e81`:**
+- The roadmap was updated with C6 and C7, so no separate roadmap commit was needed.
+- Debug (gcc 13): 197 tests pass.
+- Release (gcc 13, `BUILD_TESTING=ON`): 197 pass.
+- clang 18 with `linux-clang` and `CPPI_SANITIZERS=address;undefined`: 197 pass, with no sanitizer reports.
+- `conan create . -s compiler.cppstd=20`: the `test_package` runs ("harvested 2 in 12 operations").
+- `clang-format-18`: clean.
+- Level benchmarks: operations 9222 / 150188 / 6012, identical to 0.3.1. CPU times were within noise of 0.3.1 measured side by side (C4).
+
 ---
 
 ## Phase 2: initialization and syntax
