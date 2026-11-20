@@ -568,3 +568,26 @@ TEST(Language, WithVirtualBasesTheCompleteObjectDispatchesToItsOverriders) {
                       standard(Standard::Cpp11)),
               "222");
 }
+
+TEST(Language, AValueInitializedEnumIsZero) {
+    // `E()` value-initializes: the enumerator whose value is 0.
+    EXPECT_EQ(printed(R"(
+        enum E { A, B };
+        enum class F { X, Y };
+        E e = E();
+        F f = F();
+        std::cout << (e == A) << (f == F::X);
+    )",
+                      standard(Standard::Cpp11)),
+              "11");
+}
+
+TEST(Language, AValueInitializedHostEnumIsItsFirstValue) {
+    // cppi-farm's std-map level: operator[] inserts Direction(), the host
+    // enum's first enumerator (the test host registers North, East, South, West).
+    EXPECT_EQ(printed(R"(
+        std::map<char, Direction> m;
+        std::cout << (m['x'] == North) << m.size();
+    )"),
+              "11");
+}
