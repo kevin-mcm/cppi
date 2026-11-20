@@ -255,6 +255,83 @@ constexpr std::string_view kSource = R"cpp(
             *first = value;
         }
     }
+    template <class T, class Pred>
+    int count_if(T* first, T* last, Pred pred) {
+        int n = 0;
+        for (; first != last; ++first) {
+            if (pred(*first)) {
+                ++n;
+            }
+        }
+        return n;
+    }
+    template <class T, class Pred>
+    T* find_if(T* first, T* last, Pred pred) {
+        for (; first != last; ++first) {
+            if (pred(*first)) {
+                return first;
+            }
+        }
+        return last;
+    }
+    template <class T, class Pred>
+    T* find_if_not(T* first, T* last, Pred pred) {
+        for (; first != last; ++first) {
+            if (!pred(*first)) {
+                return first;
+            }
+        }
+        return last;
+    }
+    template <class T, class Pred>
+    bool all_of(T* first, T* last, Pred pred) {
+        return find_if_not(first, last, pred) == last;
+    }
+    template <class T, class Pred>
+    bool any_of(T* first, T* last, Pred pred) {
+        return find_if(first, last, pred) != last;
+    }
+    template <class T, class Pred>
+    bool none_of(T* first, T* last, Pred pred) {
+        return find_if(first, last, pred) == last;
+    }
+    template <class T, class Less>
+    T* min_element(T* first, T* last, Less less) {
+        T* best = first;
+        for (; first != last; ++first) {
+            if (less(*first, *best)) {
+                best = first;
+            }
+        }
+        return best;
+    }
+    template <class T, class Less>
+    T* max_element(T* first, T* last, Less less) {
+        T* best = first;
+        for (; first != last; ++first) {
+            if (less(*best, *first)) {
+                best = first;
+            }
+        }
+        return best;
+    }
+    // <numeric>: value, value + 1, value + 2...
+    template <class T>
+    void iota(T* first, T* last, T value) {
+        for (; first != last; ++first) {
+            *first = value;
+            ++value;
+        }
+    }
+    // std::sort is an insertion sort, which is already stable.
+    template <class T>
+    void stable_sort(T* first, T* last) {
+        sort(first, last);
+    }
+    template <class T, class Less>
+    void stable_sort(T* first, T* last, Less less) {
+        sort(first, last, less);
+    }
 
     // --- std::string -------------------------------------------------------------------
 

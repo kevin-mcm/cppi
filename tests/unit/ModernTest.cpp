@@ -958,3 +958,42 @@ TEST(Modern, ADataMemberThatIsAFunctionObjectCanBeCalled) {
     // A data member that is not a function object is still not callable.
     EXPECT_EQ(compile_error("struct S { int x; };\nS s;\ns.x(1);\n"), DiagCode::NotCallable);
 }
+
+TEST(Modern, AlgorithmsTheGameTeaches) {
+    // count_if, find_if, find_if_not, all_of, any_of, none_of, iota,
+    // min_element/max_element with a comparator and stable_sort, as in g++.
+    EXPECT_EQ(printed(R"(#include <algorithm>
+#include <numeric>
+        auto even = [](int x) { return x % 2 == 0; };
+        std::vector<int> v(6);
+        std::iota(v.begin(), v.end(), 3);
+        std::cout << v[0] << v[5] << " ";
+        std::cout << std::count_if(v.begin(), v.end(), even) << " ";
+        auto e = std::find_if(v.begin(), v.end(), even);
+        auto o = std::find_if_not(v.begin(), v.end(), [](int x) { return x < 6; });
+        std::cout << *e << *o << (std::find_if(v.begin(), v.end(), [](int x) { return x > 99; }) == v.end()) << " ";
+        std::cout << std::all_of(v.begin(), v.end(), [](int x) { return x > 2; })
+                  << std::any_of(v.begin(), v.end(), even)
+                  << std::none_of(v.begin(), v.end(), [](int x) { return x > 8; }) << " ";
+        std::vector<std::pair<int, int>> p;
+        p.push_back(std::make_pair(1, 9));
+        p.push_back(std::make_pair(5, 2));
+        p.push_back(std::make_pair(3, 2));
+        auto bySecond = [](const std::pair<int, int>& a, const std::pair<int, int>& b) { return a.second < b.second; };
+        std::cout << std::min_element(p.begin(), p.end(), bySecond)->first
+                  << std::max_element(p.begin(), p.end(), bySecond)->first << " ";
+        std::stable_sort(p.begin(), p.end(), bySecond);
+        for (int i = 0; i < 3; ++i) {
+            std::cout << p[i].first;
+        }
+        std::cout << " ";
+        std::vector<int> w(3);
+        w[0] = 3;
+        w[1] = 1;
+        w[2] = 2;
+        std::stable_sort(w.begin(), w.end());
+        std::cout << w[0] << w[1] << w[2];
+    )",
+                      cpp11),
+              "38 3 461 111 51 531 123");
+}
