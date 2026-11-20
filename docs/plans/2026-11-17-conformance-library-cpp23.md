@@ -117,6 +117,12 @@ The level benchmarks use `std::vector` and `push_back`, so they measure C4's cos
 - [ ] **Step 4: Run all tests**, including the existing virtual and abstract-class ones.
 - [ ] **Step 5: Commit** `fix(vm): virtual calls in constructors and destructors call the class being built`.
 
+**Done (2026-11-20):** the fix is in sema and codegen, not the VM.
+- **Constructors:** each one writes its own class's headers (`BInitHeaders`) once its bases are built. Implicit constructors do the same in `default_initialize`.
+- **Destructors:** each one writes them as it starts.
+- **Cost:** these writes are `unpriced`: they have no source location, so they cost nothing and start no statement. Operation counts stay as in 0.3.1.
+- **Limitation:** classes with virtual bases keep the old behavior during their own construction and destruction, because their layout is the complete object's. Once built, the complete object's headers are written again, including after `new`. Lifting this needs headers relative to the complete object; record it in the roadmap if a level ever needs it.
+
 ### Task C3: value-initialized enums
 
 **Files:** `tests/unit/HostRegistryTest.cpp`, `tests/unit/LanguageTest.cpp`; source only if a test fails.
