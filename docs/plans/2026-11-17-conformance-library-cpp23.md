@@ -1,7 +1,7 @@
 # cppi conformance, library and C++23 — Implementation Plan
 
 > **For agentic workers:** implement this plan task by task with the ECC orchestration commands. Run `/ecc:plan-orchestrate docs/plans/2026-11-17-conformance-library-cpp23.md` to get the ready-to-paste command for each task, then run them one at a time, in the order below:
-> - new capability (C1, C5–C7, C9–C17, C20, C21): `/ecc:orch-add-feature`;
+> - new capability (C1, C5–C7, C9–C17 with C16b, C20, C21): `/ecc:orch-add-feature`;
 > - wrong behavior (C2, C4, C4b): `/ecc:orch-fix-defect`;
 > - a working behavior that must change (C19): `/ecc:orch-change-feature`;
 > - verification only (C3): write the tests yourself. Use `/ecc:orch-fix-defect` only if one fails;
@@ -74,7 +74,7 @@ The level benchmarks use `std::vector` and `push_back`, so they measure C4's cos
 ## Order and dependencies
 
 - **Phase 1:** C1–C8, with C4b. Independent, except that C6 needs C1 (its `priority_queue` test compares pairs), C4b and C5's `std::less`/`std::greater`, and C8 is the phase's checkpoint.
-- **Phase 2:** C9–C18. C10 and C15 need C9; C16 needs C9 and C10; C18 is the phase's checkpoint. C15 (non-type template parameters) and C17 (function types as template arguments, partial specialization) extend the template engine, so they are the phase's largest tasks.
+- **Phase 2:** C9–C18, with C16b. C10 and C15 need C9; C16 needs C9 and C10; C17 needs C16b; C18 is the phase's checkpoint. C15 (non-type template parameters) and C17 (function types as template arguments, partial specialization) extend the template engine, so they are the phase's largest tasks.
 - **Phase 3:** C19–C22. C20 needs C19's table, member entries included; C22 is the 1.0.0 release, after all three phases.
 
 ---
@@ -223,6 +223,10 @@ A related limitation: cppi instantiates every function template candidate whose 
 - [ ] **Step 2: Implement; run all tests.**
 - [ ] **Step 3: Commit** `feat(library): std::queue, std::stack and std::priority_queue`.
 
+**Done (2026-11-20):**
+- `std::queue` is a ring buffer of constructed slots (C4's raw storage), not a vector with a head index. g++'s `pop` destroys the front at once, and a head index would destroy it only when compacting.
+- `std::priority_queue` needed a sema fix first, in its own commit: a data member that is a function object can be called (`comp_(a, b)`, `obj.comp(a, b)`).
+
 ### Task C7: algorithms the game teaches
 
 **Files:** `src/library/Prelude.cpp`; `tests/unit/ModernTest.cpp`; `CHANGELOG.md`.
@@ -231,6 +235,10 @@ Add `std::count_if`, `std::find_if`, `std::find_if_not`, `std::all_of`, `std::an
 - [ ] **Step 1: Failing tests**, one per name, each checked against g++.
 - [ ] **Step 2: Implement; run all tests.**
 - [ ] **Step 3: Commit** `feat(library): more algorithms (count_if, find_if, all_of...)`.
+
+**Done (2026-11-20):** one test covers every name and matches g++. `stable_sort` reuses `sort`, an insertion sort, which is already stable.
+
+**Found:** cppi has no function pointers at all. Passing a function's name (`std::count_if(b, e, even)`) gives E0206 `function-not-called`, so the C7 test passes a lambda. Task C16b adds function pointers, before C17 (`std::function` from a free function needs them).
 
 ### Task C8: Phase 1 checkpoint
 
@@ -333,6 +341,22 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
   - `std::tie(a, b) = std::make_pair(1, 2);`;
   - comparisons.
 - [ ] **Implement** (up to 4 elements, like `variant`, unless variadic templates exist), **run, commit** `feat(library): std::tuple`.
+
+### Task C16b: function pointers (found in C7)
+
+**Problem:** a function's name is not a value in cppi. `std::count_if(b, e, even)`, `int (*f)(int) = &twice;`, `f(3)` and passing `f` on all fail, with E0206 `function-not-called` or E0214. These are C++98 and common in teaching, and C17's `std::function` from a free function needs them.
+
+**Files:** `src/sema` (types: pointer to function; `&f` and the implicit conversion of a function name, choosing an overload by the target type; calls through a pointer), `src/codegen`/`src/vm` (an indirect call), `include/cppi/Feature.hpp` only if a feature gate is wanted (C++98, so probably none); `tests/unit/LanguageTest.cpp`; `CHANGELOG.md`.
+
+- [ ] **Step 1: Failing tests** (checked against g++):
+  - `int (*f)(int) = twice; f(3)` and `(*f)(3)`;
+  - `&twice`;
+  - passing `even` to `std::count_if` and `std::sort`'s comparator;
+  - an overloaded name picked by the pointer type;
+  - a null function pointer called gives E0504 `null-dereference`;
+  - comparing two pointers with `==`.
+- [ ] **Step 2: Implement; run all tests and the benchmarks.**
+- [ ] **Step 3: Commit** `feat: function pointers`.
 
 ### Task C17: `std::function`
 
