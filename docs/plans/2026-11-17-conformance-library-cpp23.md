@@ -329,6 +329,22 @@ Today `Order{5, 2}` gives E0303 `unsupported-syntax`.
   - Feature `ThreeWayComparison`, C++20.
 - [ ] **Implement** (library `strong_ordering`/`weak_ordering`/`partial_ordering` as classes compared with `0`; sema synthesizes the defaulted operators member by member), **run, commit** `feat: operator<=> and defaulted comparisons`.
 
+**Done (2026-11-22):**
+- **Prelude:** the orderings are aggregates with `__value`, compared with `int`, with conversion operators to the weaker categories. `__cppi_three_way` and `__cppi_three_way_floating` compute `<=>` on numbers.
+- **Sema:**
+  - `DeclarationBinder::synthesize_comparison` writes a defaulted body as AST (`this->m == __other.m && ...`, or a chain of `R(this->m <=> __other.m) != 0 ? ... : R{0}`) and binds it like the player's code;
+  - a defaulted `<=>` declared `auto` gets its category when declared: strong, or partial with a `double` member;
+  - rewriting happens in `ExpressionBinder::binary` at C++20.
+- **Also fixed:**
+  - a defaulted `operator==` had an empty body;
+  - `define_body` treated every implicit member as a copy assignment;
+  - a cast to a class type was rejected.
+- **Not done:**
+  - reversed candidates (`0 < (a <=> b)`, `b == a` across types);
+  - `std::strong_ordering::less` and the other static members;
+  - defaulted comparisons of classes with bases (E0303);
+  - a member whose own `<=>` is weak or partial still counts as strong when the category is chosen.
+
 ### Task C13: `consteval`
 
 - [ ] **Tests:**
