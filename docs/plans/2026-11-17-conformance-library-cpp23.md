@@ -312,6 +312,12 @@ Today `Order{5, 2}` gives E0303 `unsupported-syntax`.
   - Feature `DesignatedInitializers`, C++20.
 - [ ] **Implement, run, commit** `feat: designated initializers`.
 
+**Done (2026-11-22):**
+- `ast::InitList::designators` gives one name per element, filled from tree-sitter's `initializer_pair`.
+- `InitializerBinder::designate` maps the names to fields.
+- E0242 `designator-order` covers out-of-order, repeated and mixed designators; an unknown name is E0218.
+- Nested (`.a.b`) and array (`[0] =`) designators are C, not C++: they stay E0303.
+
 ### Task C12: three-way comparison and defaulted comparisons (C++20)
 
 - [ ] **Tests:**
