@@ -58,6 +58,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | E0239 | `no-operator` | `op`, `type` | An operator is used on a class that has none for those operands (`a < b` with `struct P { int x; };`, or `std::sort` of a `std::vector<P>` without a comparator). `op` is `<`, `==`..., `type` the class. Inside the standard library it is reported at the player's call, followed by E0240. |
 | E0240 | `instantiated-from` | `function` | *Note* after an error inside the standard library: the library function (`std::sort<pair<int, int>>`) the player's code at this location used. |
 | E0241 | `narrowing` | `from`, `to` | A conversion inside braces that may lose information, which C++11 forbids: `int{2.5}`, `int a[] = {2.5};`, `std::vector<int> v = {1.5};`. From a floating type to an integer always, and between integer types or to a floating type unless the value is a constant that fits. Not before C++11. |
+| E0242 | `designator-order` | `member` | A C++20 designated initializer out of place: `{.y = 2, .x = 5}` (not in declaration order), `{.x = 1, .x = 2}` (repeated), or `{.x = 1, 2}` (some elements designated and some not). `member` is the designator. A designator naming no member is E0218. |
 
 ## 3xx · Language features
 
@@ -89,7 +90,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | `pointers` | C++98 | | `modules` | C++20 |
 | `references` | C++98 | | `delegating-constructors` | C++11 |
 | `templates` | C++98 | | `initializer-lists` | C++11 |
-| `namespaces` | C++98 | | | |
+| `namespaces` | C++98 | | `designated-initializers` | C++20 |
 | `exceptions` | C++98 | | | |
 | `preprocessor` | C++98 | | | |
 

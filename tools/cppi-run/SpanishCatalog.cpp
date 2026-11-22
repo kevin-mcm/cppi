@@ -64,6 +64,9 @@ constexpr MessageEntry kDiagnostics[] = {
     {"no-operator", "no hay operator{op} para '{type}'"},
     {"instantiated-from", "en '{function}', usada aquí"},
     {"narrowing", "convertir '{from}' a '{to}' entre llaves puede perder información (narrowing)"},
+    {"designator-order",
+     "'.{member}' está fuera de lugar: los designadores nombran cada miembro una vez, en el orden de declaración, y "
+     "los llevan todos los elementos o ninguno"},
     {"constraints-not-satisfied", "los argumentos no cumplen las restricciones de '{function}'[: {constraint}]"},
     {"stack-overflow", "desbordamiento de pila: más de {depth} llamadas anidadas"},
     {"out-of-memory", "sin memoria"},
@@ -125,6 +128,7 @@ constexpr MessageEntry kFeatures[] = {
     {"modules", "los módulos"},
     {"delegating-constructors", "los constructores delegados"},
     {"initializer-lists", "las listas de inicialización"},
+    {"designated-initializers", "los inicializadores designados"},
 };
 
 constexpr MessageEntry kUi[] = {

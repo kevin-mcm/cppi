@@ -100,6 +100,7 @@ enum class Feature : std::uint8_t {
     // --- Appended later (grouped by standard in the table, not here) ------
     DelegatingConstructors,  ///< C++11: `A() : A(0) {}`
     InitializerLists,        ///< C++11: `std::vector<int> v = {1, 2};`, `f({1, 2})`, `v = {3, 4}`
+    DesignatedInitializers,  ///< C++20: `Order o = {.x = 5, .y = 2};`
 
     Count  // must stay last
 };

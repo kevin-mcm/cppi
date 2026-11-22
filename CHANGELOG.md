@@ -5,6 +5,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Designated initializers (C++20, feature `designated-initializers`): `Order o = {.x = 5, .y = 2};`, `Order{.y = 2}`. Members without a designator are value-initialized or take their default member initializer.
+- E0242 `designator-order` (`member`): a designator out of declaration order, repeated, or mixed with undesignated elements. A designator naming no member is E0218 `no-member`. Messages in cppi-run's English and Spanish catalogs.
 - Direct-list-initialization `T{...}` (C++11): `Order{5, 2}`, `Point{1, 2}` (a constructor), `int{3}`, `int{}`, `std::vector<int>{1, 2}`, as a temporary, an argument or `auto p = Point{1, 2};`. It gave E0303 `unsupported-syntax`.
 - E0241 `narrowing` (`from`, `to`): a conversion inside braces that may lose information, which C++11 forbids (`int{2.5}`, `int a[] = {2.5};`, `char c{300};`). A constant that fits is allowed. Messages in cppi-run's English and Spanish catalogs.
 - Braced lists and `std::initializer_list<T>` (C++11, feature `initializer-lists`; E0301 below it):

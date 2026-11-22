@@ -64,6 +64,9 @@ constexpr MessageEntry kDiagnostics[] = {
     {"no-operator", "there is no operator{op} for '{type}'"},
     {"instantiated-from", "in '{function}', used here"},
     {"narrowing", "converting '{from}' to '{to}' inside braces may lose information (narrowing)"},
+    {"designator-order",
+     "'.{member}' is out of place: designators name members once, in declaration order, and all elements or none have "
+     "one"},
     {"constraints-not-satisfied", "the arguments do not satisfy the constraints of '{function}'[: {constraint}]"},
     {"stack-overflow", "stack overflow: more than {depth} nested calls"},
     {"out-of-memory", "out of memory"},
@@ -125,6 +128,7 @@ constexpr MessageEntry kFeatures[] = {
     {"modules", "modules"},
     {"delegating-constructors", "delegating constructors"},
     {"initializer-lists", "initializer lists"},
+    {"designated-initializers", "designated initializers"},
 };
 
 constexpr MessageEntry kUi[] = {

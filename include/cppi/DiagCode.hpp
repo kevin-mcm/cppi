@@ -66,6 +66,7 @@ enum class DiagCode : std::uint16_t {
     NoOperator = 239,               ///< args: op, type (a class without that operator)
     InstantiatedFrom = 240,         ///< note; args: function (the library code the error above is in)
     Narrowing = 241,                ///< args: from, to (a narrowing conversion inside braces, C++11)
+    DesignatorOrder = 242,          ///< args: member (out of declaration order, repeated, or mixed)
     // Language features -------------------------------------------------
     FeatureLocked = 300,            ///< args: feature
     FeatureRequiresStandard = 301,  ///< args: feature, required, current

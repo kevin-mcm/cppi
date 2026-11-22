@@ -8,6 +8,7 @@
 
 #include "sema/ExpressionBinder.hpp"
 #include "sema/LvalueCloner.hpp"
+#include "sema/NameSuggester.hpp"
 #include "sema/OverloadResolver.hpp"
 #include "sema/TemplateEngine.hpp"
 #include "support/DiagnosticFactory.hpp"
@@ -296,10 +297,57 @@ bool InitializerBinder::initialize_initializer_list(BExprPtr target, TypeRef typ
     return true;
 }
 
+bool InitializerBinder::designate(TypeRef type, const ast::InitList& list, std::vector<const ast::Expr*>& given) {
+    // C++20: `{.x = 5, .y = 2}` names the members in declaration order, each
+    // once, and every element has a designator or none does.
+    TypeTable& types = ctx_.types;
+    if (!ctx_.features.allow(Feature::DesignatedInitializers, list.elements.front().range)) {
+        return false;
+    }
+    const auto& fields = types.record(type).fields;
+    std::size_t next = 0;  // fields before this one can no longer be named
+    for (std::size_t i = 0; i < list.elements.size(); ++i) {
+        const std::string& name = list.designators[i];
+        const SourceRange at = list.elements[i].range;
+        if (name.empty()) {
+            ctx_.report(DiagnosticFactory::designator_order(at, next < fields.size() ? fields[next].name : ""));
+            return false;
+        }
+        const auto field =
+            std::find_if(fields.begin(), fields.end(), [&](const FieldInfo& f) { return f.name == name; });
+        if (field == fields.end()) {
+            std::vector<std::string> names;
+            for (const auto& f : fields) {
+                names.push_back(f.name);
+            }
+            ctx_.report(DiagnosticFactory::no_member(at, types.name(type), name, NameSuggester::closest(name, names)));
+            return false;
+        }
+        const auto index = static_cast<std::size_t>(field - fields.begin());
+        if (index < next) {
+            ctx_.report(DiagnosticFactory::designator_order(at, name));
+            return false;
+        }
+        given[index] = &list.elements[i];
+        next = index + 1;
+    }
+    return true;
+}
+
 bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast::InitList& list, SourceRange range,
                                         std::vector<BStmt>& out) {
     TypeTable& types = ctx_.types;
     const auto& items = list.elements;
+
+    // Designated initializers only name the members of an aggregate.
+    if (!list.designators.empty()) {
+        const bool aggregate = types.is_record(type) && !types.record(type).user_constructors &&
+                               types.record(type).bases.empty() && !types.record(type).has_header;
+        if (!aggregate) {
+            ctx_.report(DiagnosticFactory::cannot_convert(range, "{.member = ...}", types.name(type)));
+            return false;
+        }
+    }
 
     // `std::initializer_list<int> l = {1, 2};`, or a parameter or temporary of that type (C++11).
     if (const auto element = initializer_list_element(type)) {
@@ -386,20 +434,29 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             }
             return construct(std::move(target), type, std::move(args), range, out);
         }
-        // An aggregate: one initializer per field, in order.
+        // An aggregate: one initializer per field, in order, or by designator.
         if (items.size() > info.fields.size()) {
             ctx_.report(DiagnosticFactory::too_many_initializers(range, info.fields.size(), items.size()));
             return false;
         }
-        if (items.size() < info.fields.size()) {
+        const auto fields = info.fields;  // copy: binding may add types
+        std::vector<const ast::Expr*> given(fields.size(), nullptr);
+        if (list.designators.empty()) {
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                given[i] = &items[i];
+            }
+        } else if (!designate(type, list, given)) {
+            return false;
+        }
+        if (std::count(given.begin(), given.end(), nullptr) > 0) {
             out.push_back(stmt(range, BZero{LvalueCloner::clone(*target), types.cells(type)}));
         }
-        for (std::size_t i = 0; i < info.fields.size(); ++i) {
-            const FieldInfo field = info.fields[i];
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            const FieldInfo field = fields[i];
             auto slot = field_of(*target, field);
             bool ok = true;
-            if (i < items.size()) {
-                const ast::Expr& item = items[i];
+            if (given[i] != nullptr) {
+                const ast::Expr& item = *given[i];
                 if (const auto* sub = std::get_if<ast::InitList>(&item.node)) {
                     ok = initialize_list(std::move(slot), field.type, *sub, item.range, out);
                 } else {

@@ -1763,11 +1763,28 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
     }
     if (kind == "initializer_list") {
         ast::InitList list;
+        std::vector<std::string> designators;
+        bool designated = false;
         for (const TSNode child : named_children(node)) {
             if (kind_of(child) == "initializer_pair") {
-                return unsupported_expr(node);  // designated initializers
+                // `.x = 5` (C++20); nested (`.a.b`) and array (`[0]`) designators are C, not C++.
+                const TSNode designator = field(child, "designator");
+                const TSNode value = field(child, "value");
+                if (ts_node_is_null(designator) || ts_node_is_null(value) ||
+                    kind_of(designator) != "field_designator" || ts_node_named_child_count(child) != 2) {
+                    return unsupported_expr(node);
+                }
+                std::string name(text(designator));
+                designators.push_back(name.substr(name.find_first_not_of(". \t")));
+                list.elements.push_back(convert_expr(value));
+                designated = true;
+                continue;
             }
+            designators.emplace_back();
             list.elements.push_back(convert_expr(child));
+        }
+        if (designated) {
+            list.designators = std::move(designators);
         }
         return {range, std::move(list)};
     }

@@ -89,6 +89,9 @@ public:
     void destroy_members(std::uint32_t record, std::vector<BStmt>& out);
 
 private:
+    /// Matches designated initializers `{.x = 5}` to the fields of aggregate `type`
+    /// (`given[i]` is field i's initializer, or null); false after reporting.
+    bool designate(TypeRef type, const ast::InitList& list, std::vector<const ast::Expr*>& given);
     /// One element of a braced list into a scalar `type` (narrowing is an error, C++11).
     bool initialize_element(BExprPtr target, TypeRef type, const ast::Expr& item, std::vector<BStmt>& out);
     /// `type` is std::initializer_list<element_type>: the elements go into a

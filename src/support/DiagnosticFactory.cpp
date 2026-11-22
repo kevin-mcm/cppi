@@ -310,6 +310,10 @@ Diagnostic DiagnosticFactory::narrowing(SourceRange range, const std::string& fr
     return make(DiagCode::Narrowing, range, {{"from", from}, {"to", to}});
 }
 
+Diagnostic DiagnosticFactory::designator_order(SourceRange range, const std::string& member) {
+    return make(DiagCode::DesignatorOrder, range, {{"member", member}});
+}
+
 Diagnostic DiagnosticFactory::constraints_not_satisfied(SourceRange range, std::string_view function,
                                                         std::optional<std::string> constraint) {
     std::vector<DiagArg> args{{"function", std::string(function)}};

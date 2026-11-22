@@ -167,6 +167,9 @@ public:
     /// DiagCode::Narrowing (E0241); args: from, to (a conversion that may lose
     /// information, inside braces: `int{2.5}`, C++11).
     [[nodiscard]] static Diagnostic narrowing(SourceRange range, const std::string& from, const std::string& to);
+    /// DiagCode::DesignatorOrder (E0242); args: member (a designated initializer
+    /// out of declaration order, repeated, or mixed with undesignated ones).
+    [[nodiscard]] static Diagnostic designator_order(SourceRange range, const std::string& member);
 
     // --- 5xx undefined behavior ----------------------------------------------
     /// Any 5xx diagnostic whose only arguments are given here.

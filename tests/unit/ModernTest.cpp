@@ -1110,3 +1110,27 @@ TEST(Modern, NarrowingInsideBracesIsAnError) {
     EXPECT_EQ(printed("char c{65};\nlong l{2};\ndouble x{3};\nstd::cout << c << l << x;\n", cpp11), "A23");
     EXPECT_EQ(printed("int a[] = {2.5};\nstd::cout << a[0];\n", standard(Standard::Cpp98)), "2");
 }
+
+TEST(Modern, DesignatedInitializers) {
+    // C++20: members named by designators; the others are value-initialized
+    // (or take their default member initializer).
+    const Options cpp20 = standard(Standard::Cpp20);
+    EXPECT_EQ(printed(R"(
+        struct Order { int x; int y; int z = 7; };
+        Order o = {.x = 5, .y = 2};
+        Order p = Order{.y = 3};
+        Order q{.x = 1, .z = 9};
+        std::cout << o.x << o.y << o.z << " " << p.x << p.y << p.z << " " << q.x << q.y << q.z;
+    )",
+                      cpp20),
+              "527 037 109");
+    const char* order = "struct Order { int x; int y; };\n";
+    for (const char* bad :
+         {"Order o = {.y = 2, .x = 5};\n", "Order o = {.x = 1, .x = 2};\n", "Order o = {.x = 1, 2};\n"}) {
+        auto r = run(std::string(order) + bad, cpp20);
+        ASSERT_FALSE(r.compiled.ok()) << bad;
+        EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::DesignatorOrder) << bad;
+    }
+    EXPECT_EQ(compile_error(std::string(order) + "Order o = {.w = 1};\n", cpp20), DiagCode::NoMember);
+    EXPECT_EQ(compile_error(std::string(order) + "Order o = {.x = 5};\n", cpp17), DiagCode::FeatureRequiresStandard);
+}

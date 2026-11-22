@@ -315,6 +315,9 @@ struct SizeofExpr {
 struct InitList {
     /// The elements, in order.
     std::vector<Expr> elements;
+    /// C++20 designated initializers `{.x = 5, .y = 2}`: the member each element
+    /// names ("" for one without a designator); empty if no element has one.
+    std::vector<std::string> designators;
 };
 
 /// `this`.
