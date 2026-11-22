@@ -107,6 +107,10 @@ public:
     /// `{5, 2}`, `v = {4, 5}`, `for (int x : {1, 2})`).
     [[nodiscard]] BExprPtr list_temporary(TypeRef type, const ast::InitList& list, SourceRange range);
 
+    /// A pointer to free function `function` (its id + 1), as `twice` or `&twice`.
+    BExprPtr function_pointer(std::uint32_t function, SourceRange range);
+    /// A call through the function pointer `target`.
+    BExprPtr indirect_call(BExprPtr target, std::vector<BExprPtr> args, SourceRange range);
     /// `std::get<I>(t)` on a std::tuple or std::pair: element I; null if `c` is not that.
     BExprPtr tuple_get(const ast::CallExpr& c, std::vector<BExprPtr>& args, SourceRange range);
     /// Inside a lambda that captured `this` ([this], [*this] or a default

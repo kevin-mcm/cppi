@@ -591,3 +591,42 @@ TEST(Language, AValueInitializedHostEnumIsItsFirstValue) {
     )"),
               "11");
 }
+
+TEST(Language, FunctionPointers) {
+    // A function's name (or &name) is a pointer to it: declared as
+    // `int (*f)(int)`, called as f(x) or (*f)(x), compared, passed to a
+    // function or to the algorithms (deduced as their predicate type).
+    EXPECT_EQ(printed(R"(
+        int twice(int x) { return 2 * x; }
+        int square(int x) { return x * x; }
+        bool even(int x) { return x % 2 == 0; }
+        bool greater(int a, int b) { return a > b; }
+        int apply(int (*f)(int), int v) { return f(v); }
+        int (*f)(int) = twice;
+        std::cout << f(3) << (*f)(4) << " ";
+        f = &square;
+        std::cout << f(3) << apply(twice, 5) << apply(square, 4) << " ";
+        auto g = twice;
+        std::cout << g(1) << (f == g) << (g == twice) << (f != nullptr) << " ";
+        std::vector<int> v;
+        v.push_back(1);
+        v.push_back(4);
+        v.push_back(2);
+        v.push_back(3);
+        std::cout << std::count_if(v.begin(), v.end(), even) << " ";
+        std::sort(v.begin(), v.end(), greater);
+        std::cout << v[0] << v[3];
+    )",
+                      standard(Standard::Cpp11)),
+              "68 91016 2011 2 41");
+    // The pointer's type picks among overloads; a null pointer cannot be called.
+    EXPECT_EQ(printed("int f(int x) { return x + 1; }\ndouble f(double x) { return x / 2; }\nint (*p)(int) = f;\n"
+                      "double (*q)(double) = &f;\nstd::cout << p(1) << q(3.0);\n",
+                      standard(Standard::Cpp11)),
+              "21.5");
+    auto d = runtime_error("int (*h)(int) = nullptr;\nint r = h(1);\n", standard(Standard::Cpp11));
+    EXPECT_EQ(d.code, DiagCode::NullDereference);
+    EXPECT_EQ(d.range.begin.line, 2);
+    EXPECT_EQ(compile_error("int twice(int x) { return 2 * x; }\ndouble (*q)(double) = twice;\n"),
+              DiagCode::CannotConvert);
+}

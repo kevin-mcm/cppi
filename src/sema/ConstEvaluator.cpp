@@ -103,7 +103,8 @@ std::optional<ConstEvaluator::Value> ConstEvaluator::eval(const BExpr& expr, Fra
         }
     }
     if (const auto* call = std::get_if<BCall>(&expr.node)) {
-        if (interpreter_ == nullptr || call->virtual_slot || call->result_temp || call->result_target) {
+        if (interpreter_ == nullptr || call->virtual_slot || call->result_temp || call->result_target ||
+            call->indirect) {
             return std::nullopt;
         }
         std::vector<std::int64_t> args;

@@ -67,6 +67,12 @@ public:
     [[nodiscard]] bool is_rvalue_reference(TypeRef t) const { return is_reference(t) && info(t).count == 1; }
     /// `T[count]` (count 0: unknown bound).
     [[nodiscard]] TypeRef array_of(TypeRef element, std::uint32_t count);
+    /// The function type returning `result` with `params` (interned).
+    [[nodiscard]] TypeRef function_type(TypeRef result, const std::vector<TypeRef>& params);
+    /// A function type's return type and parameter types.
+    [[nodiscard]] const std::pair<TypeRef, std::vector<TypeRef>>& signature(TypeRef function) const {
+        return signatures_[types_[function].decl];
+    }
     /// A non-type template argument of type `type` (`3` in `std::array<int, 3>`).
     [[nodiscard]] TypeRef template_value(TypeRef type, std::int64_t value);
     /// The value of a template_value() type.
@@ -131,6 +137,10 @@ public:
     [[nodiscard]] bool is_array(TypeRef t) const { return kind(t) == TypeKind::Array; }
     /// True for pointers.
     [[nodiscard]] bool is_pointer(TypeRef t) const { return kind(t) == TypeKind::Pointer; }
+    /// A function type `int(int)`.
+    [[nodiscard]] bool is_function(TypeRef t) const { return kind(t) == TypeKind::Function; }
+    /// A pointer to a function, `int (*)(int)`: its value is the function's id + 1 (0 is null).
+    [[nodiscard]] bool is_function_pointer(TypeRef t) const { return is_pointer(t) && is_function(types_[t].target); }
     /// True for references.
     [[nodiscard]] bool is_reference(TypeRef t) const { return kind(t) == TypeKind::Reference; }
     /// bool, the char, short, int and long families, and unscoped enums.
@@ -157,6 +167,9 @@ private:
     /// Entries, by TypeRef.
     std::deque<TypeInfo> types_;
     /// Structural key -> TypeRef, for interning.
+    /// Function types: (result, parameters), indexed by TypeInfo::decl.
+    std::deque<std::pair<TypeRef, std::vector<TypeRef>>> signatures_;
+    std::map<std::pair<TypeRef, std::vector<TypeRef>>, TypeRef> function_types_;
     std::map<std::tuple<TypeKind, TypeRef, bool, std::uint32_t, std::uint32_t>, TypeRef> interned_;
     /// Enums, by index.
     std::deque<EnumInfo> enums_;

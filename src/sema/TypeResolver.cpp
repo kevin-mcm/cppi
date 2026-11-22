@@ -135,6 +135,23 @@ std::optional<ResolvedType> TypeResolver::apply(ResolvedType base, const ast::De
                 out.type = ctx_.types.pointer_to(out.type, out.is_const);
                 out.is_const = part.is_const;
                 break;
+            case ast::DeclaratorKind::Function: {
+                // `int (*f)(int)`: int(int), then the pointer part makes it int (*)(int).
+                std::vector<TypeRef> params;
+                for (const auto& p : part.params) {
+                    auto param = resolve(p);
+                    if (!param || param->is_auto) {
+                        return std::nullopt;
+                    }
+                    // An array parameter is a pointer, as in a function declaration.
+                    params.push_back(ctx_.types.is_array(param->type)
+                                         ? ctx_.types.pointer_to(ctx_.types.info(param->type).target, param->is_const)
+                                         : param->type);
+                }
+                out.type = ctx_.types.function_type(out.type, params);
+                out.is_const = false;
+                break;
+            }
             case ast::DeclaratorKind::Reference:
             case ast::DeclaratorKind::RvalueReference:
                 if (ctx_.types.is_reference(out.type)) {

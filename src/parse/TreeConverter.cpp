@@ -915,6 +915,31 @@ bool TreeConverter::convert_declarator(TSNode node, ast::Declarator& out) const 
             out.range = range_of(current);
             return !out.bindings.empty();
         }
+        if (kind == "function_declarator" || kind == "abstract_function_declarator") {
+            // `(*f)(int)` or `(*)(int)`: a function type, only under a pointer
+            // (`int f(int)` declares a function and is not converted here).
+            const TSNode inner = field(current, "declarator");
+            const std::string_view inner_kind = ts_node_is_null(inner) ? "" : kind_of(inner);
+            if (inner_kind != "parenthesized_declarator" && inner_kind != "abstract_parenthesized_declarator") {
+                return false;
+            }
+            ast::DeclaratorPart part;
+            part.kind = ast::DeclaratorKind::Function;
+            part.range = range_of(current);
+            for (const TSNode p : named_children(field(current, "parameters"))) {
+                auto param = convert_param(p);
+                if (!param) {
+                    return false;
+                }
+                if (param->type.name == "void" && param->declarator.parts.empty() && param->declarator.name.empty()) {
+                    continue;  // `(void)`: no parameters
+                }
+                part.params.push_back(ast::TypeDesc{std::move(param->type), std::move(param->declarator), nullptr});
+            }
+            out.parts.push_back(std::move(part));
+            current = inner;
+            continue;
+        }
         if (kind == "parenthesized_declarator" || kind == "abstract_parenthesized_declarator") {
             auto inner = first_named_child(current);
             if (!inner) {

@@ -58,14 +58,16 @@ struct TypeSpec {
 };
 
 /// What one DeclaratorPart adds: `*`, `&`, `&&` or `[n]`.
-enum class DeclaratorKind : std::uint8_t { Pointer, Reference, RvalueReference, Array };
+/// Function: `(int)` in `int (*f)(int)`, a pointer to a function (`params`).
+enum class DeclaratorKind : std::uint8_t { Pointer, Reference, RvalueReference, Array, Function };
 
 /// One step of a declarator, from the outside in: `int* a[3]` is
 /// Pointer applied to Array(3)... see TypeResolver for the exact order.
 struct DeclaratorPart {
     DeclaratorKind kind = DeclaratorKind::Pointer;
-    ExprPtr size;           ///< arrays only; null for `int a[]`
-    bool is_const = false;  ///< `int* const p`
+    ExprPtr size;                  ///< arrays only; null for `int a[]`
+    bool is_const = false;         ///< `int* const p`
+    std::vector<TypeDesc> params;  ///< Function only: the parameter types
     /// Where this part is written.
     SourceRange range;
 };

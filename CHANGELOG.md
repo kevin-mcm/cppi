@@ -5,6 +5,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Function pointers:
+  - `int (*f)(int) = twice;`, `&twice`, `auto g = twice;`;
+  - calls through them (`f(3)`, `(*f)(3)`), comparisons with each other and with `nullptr`;
+  - passing them to functions and to the algorithms (`std::count_if(b, e, even)`, a comparator for `std::sort`);
+  - in an initialization, the pointer's type picks among overloads;
+  - calling a null one gives E0504 `null-dereference`.
+  - A function's name used as a value gave E0206 `function-not-called`.
 - `std::tuple` of up to four elements (`<tuple>`):
   - `std::make_tuple` and `std::get<I>`;
   - structured bindings (`auto [a, b, c] = t;`);

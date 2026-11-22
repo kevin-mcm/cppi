@@ -99,6 +99,7 @@ void CodeGenerator::build_metadata() {
         switch (types_.kind(t)) {
             case TypeKind::Error:
             case TypeKind::TemplateValue:
+            case TypeKind::Function:
             case TypeKind::Void: m.kind = ValueKind::Void; break;
             case TypeKind::Bool: m.kind = ValueKind::Bool; break;
             case TypeKind::Char: m.kind = ValueKind::Char; break;
@@ -560,7 +561,7 @@ void CodeGenerator::discard(const BExpr& e) {
     }
     if (const auto* c = std::get_if<BCall>(&e.node)) {
         call(*c, e);
-        if (program_.functions[c->function].returns_value) {
+        if (returns_value(*c)) {
             emit(OpCode::Pop, e.range);
             adjust(-1);
         }
@@ -1027,12 +1028,21 @@ void CodeGenerator::inc_dec(const BIncDec& i, const BExpr& e, Mode mode) {
     adjust(mode == Mode::Value ? -1 : -2);
 }
 
+bool CodeGenerator::returns_value(const BCall& c) const {
+    if (!c.indirect) {
+        return program_.functions[c.function].returns_value;
+    }
+    // Through a function pointer: the signature's return type says it.
+    const auto& signature = types_.signature(types_.info(c.indirect->type).target);
+    return !types_.is_void(signature.first) && !types_.is_record(signature.first);
+}
+
 void CodeGenerator::call(const BCall& c, const BExpr& e) {
     const SourceRange range = e.range;
     const BoundFunction& callee = program_.functions[c.function];
     std::size_t index = 0;
     long pushed = 0;
-    const bool method = callee.record.has_value();
+    const bool method = !c.indirect && callee.record.has_value();
     auto result_slot = [&]() {
         if (c.result_target) {
             address(*c.result_target);
@@ -1053,6 +1063,15 @@ void CodeGenerator::call(const BCall& c, const BExpr& e) {
     }
     if (has_result && index == (method ? 1U : 0U)) {
         result_slot();
+    }
+    if (c.indirect) {
+        value(*c.indirect);
+        emit(OpCode::CallIndirect, range, 0, static_cast<std::uint16_t>(pushed));
+        adjust(-pushed - 1);
+        if (returns_value(c)) {
+            adjust(1);
+        }
+        return;
     }
     if (c.virtual_slot) {
         const std::uint32_t at = emit(OpCode::CallVirtual, range, c.function, static_cast<std::uint16_t>(pushed));

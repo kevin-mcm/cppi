@@ -571,6 +571,21 @@ void Vm::execute(const Instruction& ins) {
             pc_ = next;
             call_virtual(ins);
             return;
+        case OpCode::CallIndirect: {
+            // A function pointer holds the function's id + 1: 0 is null.
+            const std::int64_t target = pop();
+            if (target == 0) {
+                fault(Memory::Fault::Null);
+                return;
+            }
+            if (target < 0 || static_cast<std::uint64_t>(target) > program_->functions.size()) {
+                fault(Memory::Fault::Dangling);  // not a function: E0512 invalid-pointer
+                return;
+            }
+            pc_ = next;
+            call(static_cast<std::uint32_t>(target - 1), ins.argc);
+            return;
+        }
         case OpCode::Ret: ret(ins.argc); return;
         case OpCode::Intrinsic:
             intrinsic(ins);

@@ -98,6 +98,34 @@ bool InitializerBinder::initialize(BExprPtr target, TypeRef type, const ast::Var
 }
 
 bool InitializerBinder::initialize_expr(BExprPtr target, TypeRef type, const ast::Expr& init, std::vector<BStmt>& out) {
+    // `int (*p)(int) = f;` with an overloaded `f`: the overload whose type is the pointer's.
+    if (ctx_.types.is_function_pointer(type)) {
+        const ast::Expr* name = &init;
+        if (const auto* u = std::get_if<ast::UnaryExpr>(&init.node); u != nullptr && u->op == ast::UnaryOp::AddressOf) {
+            name = u->operand.get();
+        }
+        if (const auto* id = std::get_if<ast::Identifier>(&name->node); id != nullptr && id->scope.empty()) {
+            const Symbol* symbol = ctx_.symbols.lookup(id->name);
+            if (symbol != nullptr && symbol->kind == SymbolKind::Functions && symbol->functions.size() > 1) {
+                const auto& wanted = ctx_.types.signature(ctx_.types.info(type).target);
+                for (const Callee& c : symbol->functions) {
+                    if (c.host || c.intrinsic || ctx_.functions[c.id].record ||
+                        ctx_.functions[c.id].return_type != wanted.first ||
+                        ctx_.functions[c.id].params.size() != wanted.second.size()) {
+                        continue;
+                    }
+                    bool same = true;
+                    for (std::size_t i = 0; i < wanted.second.size(); ++i) {
+                        same = same && ctx_.functions[c.id].params[i].type == wanted.second[i];
+                    }
+                    if (same) {
+                        return initialize_from(std::move(target), type,
+                                               ctx_.expressions->function_pointer(c.id, init.range), out);
+                    }
+                }
+            }
+        }
+    }
     if (ctx_.types.is_array(type)) {
         if (std::holds_alternative<ast::StringLiteral>(init.node) &&
             ctx_.types.kind(ctx_.types.info(type).target) == TypeKind::Char) {

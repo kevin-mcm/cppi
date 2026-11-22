@@ -56,6 +56,9 @@ enum class TypeKind : std::uint8_t {
     /// The value of a non-type template argument (`3` in `std::array<int, 3>`):
     /// `target` is its type, the value's bits are `count` (low) and `decl` (high).
     TemplateValue,
+    /// A function type `int(int)`: `decl` indexes the TypeTable's signatures. Only
+    /// pointers to it (`int (*)(int)`) are values.
+    Function,
 };
 
 /// One entry of the TypeTable.

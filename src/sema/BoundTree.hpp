@@ -263,6 +263,9 @@ struct BCall {
     std::optional<std::uint32_t> result_temp;   ///< frame slot receiving a returned record
     BExprPtr result_target;                     ///< or the object to build the result in directly (copy elision)
     std::optional<std::uint32_t> virtual_slot;  ///< dynamic dispatch through args[0] (this)
+    /// A call through a function pointer (`f(3)` with `int (*f)(int)`): its value,
+    /// the function's id + 1; `function` is unused.
+    BExprPtr indirect;
 };
 
 /// A call to a host function.

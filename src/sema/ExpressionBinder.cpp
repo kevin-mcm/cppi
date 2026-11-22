@@ -355,6 +355,50 @@ BExprPtr ExpressionBinder::this_pointer(SourceRange range) {
     return make(pointer, false, range, BLoad{std::move(var)});
 }
 
+BExprPtr ExpressionBinder::function_pointer(std::uint32_t function, SourceRange range) {
+    TypeTable& types = ctx_.types;
+    if (ctx_.templates != nullptr) {
+        ctx_.templates->define_if_pending(function, range);
+    }
+    const FunctionInfo& fn = ctx_.functions[function];
+    std::vector<TypeRef> params;
+    for (const ParamInfo& p : fn.params) {
+        params.push_back(p.type);
+    }
+    const TypeRef type = types.pointer_to(types.function_type(fn.return_type, params));
+    ctx_.called.insert(function);  // it may be called: an undefined one is an error
+    return constant(type, static_cast<std::int64_t>(function) + 1, range);
+}
+
+BExprPtr ExpressionBinder::indirect_call(BExprPtr target, std::vector<BExprPtr> args, SourceRange range) {
+    TypeTable& types = ctx_.types;
+    if (!target) {
+        return nullptr;
+    }
+    const auto signature = types.signature(types.info(target->type).target);  // copy: binding may add types
+    const auto& [result, params] = signature;
+    if (args.size() != params.size()) {
+        ctx_.report(
+            DiagnosticFactory::no_matching_function(range, types.name(target->type), ctx_.overloads->describe(args)));
+        return nullptr;
+    }
+    if (types.is_record(result) || types.is_reference(result)) {
+        ctx_.report(
+            DiagnosticFactory::unsupported_syntax(range, "a function pointer returning a class or a reference"));
+        return nullptr;
+    }
+    BCall call;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        auto argument = as_argument(std::move(args[i]), params[i]);
+        if (!argument) {
+            return nullptr;
+        }
+        call.args.push_back(std::move(argument));
+    }
+    call.indirect = std::move(target);
+    return make(result, false, range, std::move(call));
+}
+
 BExprPtr ExpressionBinder::tuple_get(const ast::CallExpr& c, std::vector<BExprPtr>& args, SourceRange range) {
     // `std::get<I>(t)` on a std::tuple or std::pair: element I, whose type depends
     // on I (the prelude cannot say that without partial specialization).
@@ -715,6 +759,13 @@ BExprPtr ExpressionBinder::from_symbol(Symbol& found, const std::string& name, S
         case SymbolKind::Variable: return variable(*symbol, id.name, range);
         case SymbolKind::Constant: return constant(symbol->type, symbol->value, range);
         case SymbolKind::Functions: {
+            // A function's name as a value is a pointer to it (`auto f = twice;`,
+            // `std::count_if(b, e, even)`): one ordinary function of the player's.
+            if (use == Use::Value && symbol->templates.empty() && symbol->functions.size() == 1 &&
+                !symbol->functions.front().host && !symbol->functions.front().intrinsic &&
+                !ctx_.functions[symbol->functions.front().id].record) {
+                return function_pointer(symbol->functions.front().id, range);
+            }
             // `harvest;` is legal C++ that does nothing: warn, don't fail.
             const Severity severity = use == Use::Statement ? Severity::Warning : Severity::Error;
             ctx_.report(DiagnosticFactory::function_not_called(range, id.name, severity));
@@ -746,6 +797,18 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         auto callee = bind(*c.callee_expr);
         if (!callee) {
             return nullptr;
+        }
+        if (types.is_function_pointer(callee->type)) {
+            // `(*f)(3)`, `table[i](3)`: a call through a function pointer.
+            std::vector<BExprPtr> args;
+            for (const auto& a : c.args) {
+                auto bound = bind(a);
+                if (!bound) {
+                    return nullptr;
+                }
+                args.push_back(std::move(bound));
+            }
+            return indirect_call(to_rvalue(std::move(callee)), std::move(args), range);
         }
         if (types.is_record(callee->type) && is_function_object(types.info(callee->type).decl)) {
             std::vector<BExprPtr> args;
@@ -980,6 +1043,15 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
             return ctx_.templates->call(c, std::move(*args), range);
         }
         case SymbolKind::Variable:
+            if (types.is_function_pointer(symbol->type)) {
+                // `f(3)` with `int (*f)(int)`: a call through the pointer.
+                auto target = variable(*symbol, c.callee, c.callee_range);
+                auto args = bind_args();
+                if (!target || !args) {
+                    return nullptr;
+                }
+                return indirect_call(to_rvalue(std::move(target)), std::move(*args), range);
+            }
             if (types.is_record(symbol->type) && is_function_object(types.info(symbol->type).decl)) {
                 // A function object: `f(x)` calls f.operator()(x).
                 auto object = variable(*symbol, c.callee, c.callee_range);
@@ -1477,6 +1549,9 @@ BExprPtr ExpressionBinder::unary(const ast::UnaryExpr& u, SourceRange range) {
         if (!operand) {
             return nullptr;
         }
+        if (!operand->lvalue && types.is_function_pointer(operand->type)) {
+            return operand;  // `&twice`: the function's address, as `twice` is
+        }
         if (!operand->lvalue) {
             report_invalid_operands("&", *operand, nullptr, range);
             return nullptr;
@@ -1498,6 +1573,9 @@ BExprPtr ExpressionBinder::unary(const ast::UnaryExpr& u, SourceRange range) {
     }
     operand = to_rvalue(std::move(operand));
     if (u.op == ast::UnaryOp::Deref) {
+        if (types.is_function_pointer(operand->type)) {
+            return to_rvalue(std::move(operand));  // `*f` is the function, which decays back to `f`
+        }
         if (!types.is_pointer(operand->type) || types.is_void(types.info(operand->type).target)) {
             report_invalid_operands("*", *operand, nullptr, range);
             return nullptr;

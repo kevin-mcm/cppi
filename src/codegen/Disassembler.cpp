@@ -49,6 +49,7 @@ std::string Disassembler::operand_text(const Instruction& ins) const {
         case OpCode::PushConst: return program_.constants[ins.operand].text;
         case OpCode::CallHost:
             return host.function(FunctionId{ins.operand}).name + " (" + std::to_string(ins.argc) + " args)";
+        case OpCode::CallIndirect: return "(" + std::to_string(ins.argc) + " args)";
         case OpCode::Call:
         case OpCode::CallVirtual:
             return program_.functions[ins.operand].name + " (" + std::to_string(ins.argc) + " args)" +
