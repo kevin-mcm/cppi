@@ -555,16 +555,54 @@ void StatementBinder::bind_for(const ast::ForStmt& s, SourceRange range, std::ve
     out.push_back(wrap(range, std::move(outer)));
 }
 
+BExprPtr StatementBinder::braced_range(const ast::InitList& list, SourceRange range) {
+    // `for (int x : {1, 2, 3})`: the range is a std::initializer_list<E>, E
+    // deduced from the elements (all of the same type, as for `auto`).
+    if (list.elements.empty()) {
+        ctx_.report(DiagnosticFactory::template_deduction(range, "std::initializer_list"));
+        return nullptr;
+    }
+    std::optional<TypeRef> element;
+    for (const auto& item : list.elements) {
+        // A trial: only the type matters, so nothing it reports or creates stays.
+        const std::size_t mark = ctx_.fn->temporaries.size();
+        ctx_.sink.mute();
+        auto bound = ctx_.expressions->to_rvalue(ctx_.expressions->bind(item));
+        ctx_.sink.unmute();
+        ctx_.fn->temporaries.erase(ctx_.fn->temporaries.begin() + static_cast<std::ptrdiff_t>(mark),
+                                   ctx_.fn->temporaries.end());
+        if (!bound || (element && *element != bound->type)) {
+            ctx_.report(DiagnosticFactory::template_deduction(range, "std::initializer_list"));
+            return nullptr;
+        }
+        element = bound->type;
+    }
+    const auto type = ctx_.templates->instantiate_library("initializer_list", {*element}, range);
+    if (!type) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "braced list here"));
+        return nullptr;
+    }
+    return ctx_.expressions->list_temporary(*type, list, range);
+}
+
 void StatementBinder::bind_range_for(const ast::RangeForStmt& s, SourceRange range, std::vector<BStmt>& out) {
     TypeTable& types = ctx_.types;
     ctx_.symbols.push(Scope::Kind::Block, range.end);
-    auto container = ctx_.expressions->bind(*s.range_expr);
+    const std::size_t mark = ctx_.fn->temporaries.size();
+    const auto* list = std::get_if<ast::InitList>(&s.range_expr->node);
+    auto container = list != nullptr ? braced_range(*list, s.range_expr->range) : ctx_.expressions->bind(*s.range_expr);
     if (!container) {
+        drop_temporaries(mark);
         ctx_.symbols.pop();
         return;
     }
     if (types.is_record(container->type)) {
         bind_range_for_class(s, std::move(container), range, out);
+        // The range's temporaries (a returned vector, the array behind {1, 2})
+        // live until the loop ends, then are destroyed ([stmt.ranged]).
+        for (auto& cleanup : release_temporaries(mark)) {
+            out.push_back(std::move(cleanup));
+        }
         ctx_.symbols.pop();
         return;
     }

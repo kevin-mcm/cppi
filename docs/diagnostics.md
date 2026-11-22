@@ -87,7 +87,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | `enums` | C++98 | | `coroutines` | C++20 |
 | `pointers` | C++98 | | `modules` | C++20 |
 | `references` | C++98 | | `delegating-constructors` | C++11 |
-| `templates` | C++98 | | | |
+| `templates` | C++98 | | `initializer-lists` | C++11 |
 | `namespaces` | C++98 | | | |
 | `exceptions` | C++98 | | | |
 | `preprocessor` | C++98 | | | |

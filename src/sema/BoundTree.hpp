@@ -24,6 +24,10 @@
 #include <variant>
 #include <vector>
 
+namespace cppi::ast {
+struct InitList;
+}  // namespace cppi::ast
+
 namespace cppi::sema {
 
 /// Forward declaration: bound expressions nest.
@@ -350,6 +354,10 @@ struct BExpr {
     bool expiring = false;
     /// Where it is in the source.
     SourceRange range;
+    /// A braced list `{...}` used as an argument or the right of `=`: its type
+    /// comes from the parameter it initializes, so overload resolution ranks
+    /// it and OverloadResolver::prepare builds the object. Never generated.
+    const ast::InitList* braced = nullptr;
     /// The node itself.
     std::variant<BConst, BVar, BDeref, BAddressOf, BMember, BIndex, BLoad, BUnary, BBinary, BLogical, BAssign, BIncDec,
                  BConditional, BCall, BHostCall, BIntrinsic, BConvert, BComma, BTemp, BNew, BDelete>

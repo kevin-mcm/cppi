@@ -997,3 +997,81 @@ TEST(Modern, AlgorithmsTheGameTeaches) {
                       cpp11),
               "38 3 461 111 51 531 123");
 }
+
+TEST(Modern, BracedListsAndInitializerList) {
+    // C++11 list-initialization: initializer-list constructors win, a braced
+    // argument or right side of = is a temporary of the parameter's type, and
+    // a range-for over {..} iterates a std::initializer_list.
+    EXPECT_EQ(printed(R"(#include <initializer_list>
+        struct Order { int x; int y; };
+        int sum(std::initializer_list<int> l) {
+            int s = 0;
+            for (int v : l) {
+                s += v;
+            }
+            return s;
+        }
+        std::vector<int> v = {1, 2, 3};
+        std::cout << v.size() << v[2] << " ";
+        v = {4, 5};
+        std::cout << v.size() << v[0] << v[1] << " ";
+        std::map<char, int> m = {{'b', 2}, {'a', 1}, {'b', 9}};
+        std::cout << m.size() << m['a'] << m['b'] << " ";
+        for (int x : {7, 8, 9}) {
+            std::cout << x;
+        }
+        std::cout << " ";
+        std::vector<Order> orders;
+        orders.push_back({5, 2});
+        std::cout << orders[0].x << orders[0].y << " ";
+        std::initializer_list<int> l = {1, 2, 3, 4};
+        std::cout << l.size() << sum(l) << sum({10, 20}) << " ";
+        std::vector<int> e = {};
+        std::vector<int> one{3};
+        std::vector<int> three(3);
+        std::cout << e.size() << one.size() << one[0] << three.size() << " ";
+        std::vector<std::string> words = {"ab", "c"};
+        for (std::string w : {std::string("x"), std::string("yz")}) {
+            std::cout << w;
+        }
+        std::cout << words[0] << words[1] << words.size();
+    )",
+                      cpp11),
+              "33 245 212 789 52 41030 0133 xyzabc2");
+}
+
+TEST(Modern, InitializerListsAreCpp11) {
+    // C++98 has aggregates and arrays in braces, but no std::initializer_list.
+    EXPECT_EQ(compile_error("std::vector<int> v = {1, 2};\n", standard(Standard::Cpp98)),
+              DiagCode::FeatureRequiresStandard);
+    EXPECT_EQ(printed("struct P { int x; int y; };\nP p = {1, 2};\nint a[] = {3, 4};\nstd::cout << p.y << a[1];\n",
+                      standard(Standard::Cpp98)),
+              "24");
+}
+
+TEST(Modern, ARangeForDestroysItsRangeTemporariesAfterTheLoop) {
+    // [stmt.ranged]: a temporary range (a returned vector, the array behind
+    // {..}) lives until the loop ends, then is destroyed.
+    EXPECT_EQ(printed(R"(
+        int live = 0;
+        struct C { C() { ++live; } C(const C&) { ++live; } ~C() { --live; } };
+        std::vector<C> make() {
+            std::vector<C> v;
+            v.push_back(C());
+            v.push_back(C());
+            return v;
+        }
+        int n = 0;
+        for (const C& c : make()) {
+            ++n;
+            std::cout << live;
+        }
+        std::cout << " " << n << live;
+        for (const C& c : {C(), C(), C()}) {
+            ++n;
+        }
+        std::cout << " " << n << live;
+    )",
+                      cpp11),
+              "22 20 50");
+}

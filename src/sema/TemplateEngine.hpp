@@ -80,6 +80,12 @@ public:
 
     /// The class template and arguments `type` was instantiated from.
     [[nodiscard]] std::optional<std::pair<std::uint32_t, std::vector<TypeRef>>> origin(TypeRef type) const;
+    /// True if template `id` is the standard library's template `name`.
+    [[nodiscard]] bool is_library_template(std::uint32_t id, std::string_view name) const;
+    /// `std::name<args...>`, a class template of the standard library
+    /// (`for (int x : {1, 2})` needs std::initializer_list<int>).
+    [[nodiscard]] std::optional<TypeRef> instantiate_library(std::string_view name, const std::vector<TypeRef>& args,
+                                                             SourceRange range);
 
     /// Binds the body of `function` if it is a member of a class template
     /// instance not defined yet (members are defined on first use); `site`

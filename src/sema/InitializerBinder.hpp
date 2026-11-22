@@ -17,6 +17,7 @@
 #include <cppi/SourceRange.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace cppi::sema {
@@ -53,6 +54,12 @@ public:
     /// no default member initializer, no virtual base to set up.
     [[nodiscard]] bool trivial_default_initialization(TypeRef type) const;
 
+    /// E if `type` is the standard library's std::initializer_list<E>.
+    [[nodiscard]] std::optional<TypeRef> initializer_list_element(TypeRef type) const;
+    /// The std::initializer_list<E> type taken by an initializer-list
+    /// constructor of `type` (first parameter, any others defaulted), if any.
+    [[nodiscard]] std::optional<TypeRef> initializer_list_constructor(TypeRef type) const;
+
     /// Binds a reference variable: stores the address of the referent in `slot`.
     bool bind_reference(BExprPtr slot, TypeRef reference_type, const ast::Expr& init, std::vector<BStmt>& out);
 
@@ -77,6 +84,10 @@ public:
     void destroy_members(std::uint32_t record, std::vector<BStmt>& out);
 
 private:
+    /// `type` is std::initializer_list<element_type>: the elements go into a
+    /// temporary array and `target` points at it.
+    bool initialize_initializer_list(BExprPtr target, TypeRef type, TypeRef element_type, const ast::InitList& list,
+                                     SourceRange range, std::vector<BStmt>& out);
     /// Initializes the virtual bases of a complete object of `record`.
     bool init_virtual_bases(const BExpr& target, std::uint32_t record, SourceRange range, std::vector<BStmt>& out);
     /// Runs a constructor of a base class on a base subobject (no headers).

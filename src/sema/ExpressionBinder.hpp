@@ -103,6 +103,9 @@ public:
 
     /// `Point(1, 2)`: a temporary object built by a constructor.
     [[nodiscard]] BExprPtr construct_temporary(TypeRef type, std::vector<BExprPtr> args, SourceRange range);
+    /// A temporary of `type` list-initialized from `list` (an argument
+    /// `{5, 2}`, `v = {4, 5}`, `for (int x : {1, 2})`).
+    [[nodiscard]] BExprPtr list_temporary(TypeRef type, const ast::InitList& list, SourceRange range);
 
     /// `__cppi_allocate<T>(n)` (prelude only): storage for `n` objects of
     /// `type`, not constructed, tracked like `new T[n]` (leaks, double frees).

@@ -123,6 +123,7 @@ constexpr MessageEntry kFeatures[] = {
     {"coroutines", "las corrutinas"},
     {"modules", "los módulos"},
     {"delegating-constructors", "los constructores delegados"},
+    {"initializer-lists", "las listas de inicialización"},
 };
 
 constexpr MessageEntry kUi[] = {

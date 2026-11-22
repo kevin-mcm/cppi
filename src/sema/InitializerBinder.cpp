@@ -145,10 +145,90 @@ bool InitializerBinder::initialize_from(BExprPtr target, TypeRef type, BExprPtr 
     return true;
 }
 
+std::optional<TypeRef> InitializerBinder::initializer_list_element(TypeRef type) const {
+    if (!ctx_.types.is_record(type) || ctx_.templates == nullptr) {
+        return std::nullopt;
+    }
+    const auto origin = ctx_.templates->origin(type);
+    if (!origin || origin->second.size() != 1 ||
+        !ctx_.templates->is_library_template(origin->first, "initializer_list")) {
+        return std::nullopt;
+    }
+    return origin->second.front();
+}
+
+std::optional<TypeRef> InitializerBinder::initializer_list_constructor(TypeRef type) const {
+    const TypeTable& types = ctx_.types;
+    if (!types.is_record(type)) {
+        return std::nullopt;
+    }
+    for (const std::uint32_t id : types.record(type).constructors) {
+        const auto& params = ctx_.functions[id].params;
+        if (params.empty()) {
+            continue;
+        }
+        const TypeRef first =
+            types.is_reference(params.front().type) ? types.info(params.front().type).target : params.front().type;
+        const bool rest_defaulted = std::all_of(params.begin() + 1, params.end(),
+                                                [](const ParamInfo& p) { return p.default_value != nullptr; });
+        if (rest_defaulted && initializer_list_element(first)) {
+            return first;
+        }
+    }
+    return std::nullopt;
+}
+
+bool InitializerBinder::initialize_initializer_list(BExprPtr target, TypeRef type, TypeRef element_type,
+                                                    const ast::InitList& list, SourceRange range,
+                                                    std::vector<BStmt>& out) {
+    TypeTable& types = ctx_.types;
+    const auto count = static_cast<std::uint32_t>(list.elements.size());
+    const auto fields = types.record(type).fields;  // copy: binding may add types
+    const auto find = [&](std::string_view name) {
+        return std::find_if(fields.begin(), fields.end(), [&](const FieldInfo& f) { return f.name == name; });
+    };
+    const auto first = find("__first");
+    const auto size = find("__size");
+    if (first == fields.end() || size == fields.end()) {
+        ctx_.report(DiagnosticFactory::cannot_convert(range, "{...}", types.name(type)));
+        return false;
+    }
+    // The elements live in a temporary array, as in real C++ (destroyed at the
+    // end of the full-expression); the list points at it.
+    BExprPtr address;
+    if (count == 0) {
+        address = ExpressionBinder::constant(first->type, 0, range);
+    } else {
+        const TypeRef array = types.array_of(element_type, count);
+        BVar slot;
+        slot.cells = std::max<std::uint32_t>(1, types.cells(array));
+        slot.offset = ctx_.allocate_local(slot.cells);
+        auto elements = ExpressionBinder::make(array, true, range, slot);
+        if (!initialize_list(LvalueCloner::clone(*elements), array, list, range, out)) {
+            return false;
+        }
+        if (needs_destruction(array)) {
+            ctx_.fn->temporaries.push_back(FunctionContext::Temporary{slot.offset, array});
+        }
+        address = ExpressionBinder::make(first->type, false, range, BAddressOf{element(*elements, 0)});
+    }
+    out.push_back(stmt(range, BStore{field_of(*target, *first), std::move(address)}));
+    out.push_back(stmt(range, BStore{field_of(*target, *size), ExpressionBinder::constant(size->type, count, range)}));
+    return true;
+}
+
 bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast::InitList& list, SourceRange range,
                                         std::vector<BStmt>& out) {
     TypeTable& types = ctx_.types;
     const auto& items = list.elements;
+
+    // `std::initializer_list<int> l = {1, 2};`, or a parameter or temporary of that type (C++11).
+    if (const auto element = initializer_list_element(type)) {
+        if (!ctx_.features.allow(Feature::InitializerLists, range)) {
+            return false;
+        }
+        return initialize_initializer_list(std::move(target), type, *element, list, range, out);
+    }
 
     if (types.is_scalar(type)) {
         if (items.empty()) {
@@ -196,6 +276,24 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
     }
 
     if (types.is_record(type)) {
+        // [dcl.init.list]: an initializer-list constructor wins (`std::vector<int> v = {1, 2};`),
+        // except that empty braces value-initialize a class with a default constructor.
+        if (const auto list_type = initializer_list_constructor(type)) {
+            bool has_default = false;
+            for (const std::uint32_t id : types.record(type).constructors) {
+                has_default =
+                    has_default || ctx_.overloads->defaults(Callee{false, id}) == ctx_.functions[id].params.size();
+            }
+            if (!items.empty() || !has_default) {
+                auto object = ctx_.expressions->list_temporary(*list_type, list, range);
+                if (!object) {
+                    return false;
+                }
+                std::vector<BExprPtr> args;
+                args.push_back(std::move(object));
+                return construct(std::move(target), type, std::move(args), range, out);
+            }
+        }
         RecordInfo& info = types.record(type);
         if (info.user_constructors || !info.bases.empty() || info.has_header) {
             // A class: the braces hold constructor arguments (C++11).

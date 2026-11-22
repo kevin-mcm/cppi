@@ -573,6 +573,21 @@ constexpr std::string_view kSource = R"cpp(
         return data_[i];
     }
 
+    // --- std::initializer_list (C++11) ---------------------------------------------------
+    // The compiler fills it from a braced list `{a, b}`: __first points at a
+    // temporary array of the elements (destroyed at the end of the full-expression).
+    template <class T>
+    class initializer_list {
+    public:
+        initializer_list() : __first(0), __size(0) {}
+        int size() const { return __size; }
+        const T* begin() const { return __first; }
+        const T* end() const { return __first + __size; }
+
+        const T* __first;
+        int __size;
+    };
+
     // --- std::vector ------------------------------------------------------------------
 
     template <class T>
@@ -584,6 +599,7 @@ constexpr std::string_view kSource = R"cpp(
         vector() : data_(0), size_(0), capacity_(0) {}
         vector(int n) : data_(0), size_(0), capacity_(0) { resize(n); }
         vector(int n, const T& value) : data_(0), size_(0), capacity_(0) { resize(n, value); }
+        vector(initializer_list<T> list) : data_(0), size_(0), capacity_(0) { assign_list(list); }
         vector(const vector<T>& other) : data_(0), size_(0), capacity_(0) {
             reserve(other.size_);
             for (int i = 0; i < other.size_; ++i) {
@@ -604,6 +620,12 @@ constexpr std::string_view kSource = R"cpp(
                     ++size_;
                 }
             }
+            return *this;
+        }
+
+        vector<T>& operator=(initializer_list<T> list) {
+            clear();
+            assign_list(list);
             return *this;
         }
 
@@ -706,6 +728,14 @@ constexpr std::string_view kSource = R"cpp(
         }
 
     private:
+        // Appends the elements of `list` (the vector is empty).
+        void assign_list(initializer_list<T> list) {
+            reserve(list.size());
+            for (const T* p = list.begin(); p != list.end(); ++p) {
+                __cppi_construct(data_ + size_, *p);
+                ++size_;
+            }
+        }
         // Moves the elements into `bigger` (n slots) and frees the old storage.
         void relocate(T* bigger, int n) {
             for (int i = 0; i < size_; ++i) {
@@ -884,6 +914,16 @@ constexpr std::string_view kSource = R"cpp(
     template <class K, class V>
     class map {
     public:
+        map() {}
+        // A key that appears twice keeps its first value, as in std::map.
+        map(initializer_list<pair<K, V>> list) {
+            for (const pair<K, V>* p = list.begin(); p != list.end(); ++p) {
+                int i = lower_bound(p->first);
+                if (i == items_.size() || p->first < items_[i].first) {
+                    items_.insert(items_.begin() + i, *p);
+                }
+            }
+        }
         int size() const { return items_.size(); }
         bool empty() const { return items_.empty(); }
         void clear() { items_.clear(); }

@@ -7,8 +7,11 @@
 #include "sema/OverloadResolver.hpp"
 
 #include "sema/ExpressionBinder.hpp"
+#include "sema/InitializerBinder.hpp"
 #include "sema/Intrinsics.hpp"
 #include "support/DiagnosticFactory.hpp"
+
+#include "ast/Expr.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -126,8 +129,34 @@ bool OverloadResolver::converts_by_constructor(const BExpr& arg, TypeRef record)
     });
 }
 
+ConversionRank OverloadResolver::braced_rank(const ast::InitList& list, TypeRef param) const {
+    const TypeTable& types = ctx_.types;
+    TypeRef target = param;
+    if (types.is_reference(param)) {
+        const TypeInfo& ref = types.info(param);
+        // A braced list makes a temporary: it binds const T& and T&&, not T&.
+        if (!ref.target_const && !types.is_rvalue_reference(param)) {
+            return ConversionRank::None;
+        }
+        target = ref.target;
+    }
+    if (ctx_.initializers->initializer_list_element(target)) {
+        return ConversionRank::Exact;  // `v = {4, 5}` prefers operator=(initializer_list<T>)
+    }
+    if (types.is_record(target)) {
+        return ConversionRank::UserDefined;  // a constructor, or the aggregate's members
+    }
+    if (types.is_scalar(target) && list.elements.size() <= 1) {
+        return ConversionRank::Conversion;
+    }
+    return ConversionRank::None;
+}
+
 ConversionRank OverloadResolver::rank(const BExpr& arg, TypeRef param) const {
     const TypeTable& types = ctx_.types;
+    if (arg.braced != nullptr) {
+        return braced_rank(*arg.braced, param);
+    }
     if (types.is_error(arg.type) || types.is_error(param)) {
         return ConversionRank::Exact;
     }
@@ -331,6 +360,14 @@ std::optional<std::vector<BExprPtr>> OverloadResolver::prepare(const Callee& cal
     std::vector<BExprPtr> out;
     out.reserve(args.size());
     for (std::size_t i = 0; i < args.size(); ++i) {
+        if (args[i]->braced != nullptr) {
+            // `f({5, 2})`: a temporary of the parameter's type, list-initialized.
+            const TypeRef param = ctx_.types.is_reference(params[i]) ? ctx_.types.info(params[i]).target : params[i];
+            args[i] = ctx_.expressions->list_temporary(param, *args[i]->braced, args[i]->range);
+            if (!args[i]) {
+                return std::nullopt;
+            }
+        }
         auto prepared = ctx_.expressions->as_argument(std::move(args[i]), params[i]);
         if (!prepared) {
             return std::nullopt;

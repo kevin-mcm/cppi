@@ -204,6 +204,20 @@ std::optional<TypeRef> TemplateEngine::instantiate_class(std::uint32_t id, const
     return result;
 }
 
+bool TemplateEngine::is_library_template(std::uint32_t id, std::string_view name) const {
+    return id < templates_.size() && templates_[id].library && templates_[id].name == name;
+}
+
+std::optional<TypeRef> TemplateEngine::instantiate_library(std::string_view name, const std::vector<TypeRef>& args,
+                                                           SourceRange range) {
+    Symbol* symbol = ctx_.symbols.lookup_qualified({"std"}, std::string(name));
+    if (symbol == nullptr || symbol->kind != SymbolKind::Template || symbol->templates.empty() ||
+        !is_library_template(symbol->templates.front(), name) || !templates_[symbol->templates.front()].is_class) {
+        return std::nullopt;
+    }
+    return instantiate_class(symbol->templates.front(), args, range);
+}
+
 void TemplateEngine::define_if_pending(std::uint32_t function, SourceRange site) {
     // During a trial (muted) the body waits for a real use, which reports its errors.
     if (ctx_.sink.muted()) {

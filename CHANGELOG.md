@@ -5,12 +5,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Braced lists and `std::initializer_list<T>` (C++11, feature `initializer-lists`; E0301 below it):
+  - `std::vector<int> v = {1, 2, 3};`, `v = {4, 5};` and `std::map<char, int> m = {{'a', 1}};`, through initializer-list constructors and `vector::operator=`; an initializer-list constructor wins, except that `{}` value-initializes;
+  - a braced argument (`v.push_back({5, 2})`, `f({1, 2})`) is a temporary of the parameter's type;
+  - `for (int x : {1, 2, 3})` iterates a `std::initializer_list` whose element type is deduced;
+  - the elements live in a temporary array, destroyed at the end of the full-expression.
 - Algorithms `std::count_if`, `std::find_if`, `std::find_if_not`, `std::all_of`, `std::any_of`, `std::none_of`, `std::min_element`/`std::max_element` with a comparator, `std::stable_sort` (with or without a comparator) and `std::iota` (`<numeric>`).
 - Container adaptors `std::queue`, `std::stack` and `std::priority_queue<T, Container = std::vector<T>, Compare = std::less<T>>`, with `push`, `pop`, `front`/`back` or `top`, `empty` and `size`. `std::queue` is a ring buffer, so `pop` is O(1) and destroys the front at once. `std::priority_queue` is a binary heap with the largest element on top, or the smallest with `std::greater`. `front`, `back`, `top` and `pop` on an empty adaptor stop with E0503 `out-of-bounds`; real C++ leaves this undefined.
 - Function objects `std::less<T>`, `std::greater<T>` and `std::equal_to<T>` (`<functional>`), which compare with `<`, `>` and `==`. For example, `std::sort(v.begin(), v.end(), std::greater<int>())` sorts in descending order.
 - `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
 
 ### Fixed
+- A range-for destroys the temporaries of its range when the loop ends. A returned `std::vector`, for example, was never destroyed, which leaked its storage (E0510) and skipped its elements' destructors.
 - A data member that is a function object can be called: `comp_(a, b)` inside the class, and `obj.comp(a, b)` or `p->comp(a, b)` outside it. This gave E0200 `unknown-function` or E0204 `not-callable`.
 - `std::vector` constructs and destroys only the elements it holds, as a real one does:
   - `reserve` constructs nothing;

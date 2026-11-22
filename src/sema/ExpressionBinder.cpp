@@ -127,6 +127,11 @@ BExprPtr ExpressionBinder::bind_condition(const ast::Expr& expr) {
 }
 
 BExprPtr ExpressionBinder::to_rvalue(BExprPtr expr) {
+    if (expr && expr->braced != nullptr) {
+        // A braced list only initializes something (a parameter, `v = {...}`), never as a value.
+        ctx_.report(DiagnosticFactory::unsupported_syntax(expr->range, "braced list here"));
+        return nullptr;
+    }
     if (!expr || !expr->lvalue) {
         return expr;
     }
@@ -473,9 +478,11 @@ BExprPtr ExpressionBinder::bind_node(const ast::Expr& e, Use use) {
             [&](const ast::MemberExpr& m) { return member(m, range); },
             [&](const ast::CastExpr& c) { return cast(c, range); },
             [&](const ast::SizeofExpr& s) { return size_of(s, range); },
-            [&](const ast::InitList&) -> BExprPtr {
-                ctx_.report(DiagnosticFactory::unsupported_syntax(range, "initializer_list"));
-                return nullptr;
+            [&](const ast::InitList& l) -> BExprPtr {
+                // Typed by where it goes (an argument, `v = {...}`): see BExpr::braced.
+                auto list = make(TypeTable::kVoid, false, range, BConst{});
+                list->braced = &l;
+                return list;
             },
             [&](const ast::ThisExpr&) { return this_pointer(range); },
             [&](const ast::NewExpr& n) { return new_expr(n, range); },
@@ -1182,6 +1189,28 @@ BExprPtr ExpressionBinder::construct_temporary(TypeRef type, std::vector<BExprPt
     auto target = make(type, true, range, slot);
     std::vector<BStmt> init;
     if (!ctx_.initializers->construct(std::move(target), type, std::move(args), range, init)) {
+        return nullptr;
+    }
+    temp.init_stmts = std::move(init);
+    if (ctx_.initializers->needs_destruction(type)) {
+        ctx_.fn->temporaries.push_back(FunctionContext::Temporary{temp.offset, type});
+    }
+    auto e = make(type, true, range, std::move(temp));
+    e->expiring = true;
+    return e;
+}
+
+BExprPtr ExpressionBinder::list_temporary(TypeRef type, const ast::InitList& list, SourceRange range) {
+    const TypeTable& types = ctx_.types;
+    BTemp temp;
+    temp.cells = std::max<std::uint32_t>(1, types.cells(type));
+    temp.offset = ctx_.allocate_local(temp.cells);
+    BVar slot;
+    slot.offset = temp.offset;
+    slot.cells = temp.cells;
+    auto target = make(type, true, range, slot);
+    std::vector<BStmt> init;
+    if (!ctx_.initializers->initialize_list(std::move(target), type, list, range, init)) {
         return nullptr;
     }
     temp.init_stmts = std::move(init);
