@@ -429,6 +429,12 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
 - [ ] **Step 2: Implement; run all tests and the benchmarks.**
 - [ ] **Step 3: Commit** `feat: function pointers`.
 
+**Done (2026-11-22):**
+- **Types:** `TypeKind::Function`, with interned signatures in the type table; `pointer_to(function)` is `int (*)(int)`.
+- **Parser:** `int (*f)(int)` gets a `DeclaratorKind::Function` part, only under parentheses, so a prototype is untouched.
+- **Value and calls:** the value is the function's id + 1 (0 is null). `BCall::indirect` and the opcode `CallIndirect` call it; a null pointer is E0504, a non-function E0512. Reachability counts function-pointer constants.
+- **Not done:** pointers to member functions; a function pointer returning a class or a reference (E0303); picking an overload when assigning (`p = f;`) or passing (`apply(f, 1)`) rather than initializing.
+
 ### Task C17: `std::function`
 
 - [ ] **Tests:**
