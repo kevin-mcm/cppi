@@ -87,6 +87,7 @@ std::optional<ast::BinaryOp> binary_op(std::string_view op) noexcept {
     if (op == ">") return BinaryOp::Gt;
     if (op == "<=") return BinaryOp::Le;
     if (op == ">=") return BinaryOp::Ge;
+    if (op == "<=>") return BinaryOp::ThreeWay;
     return std::nullopt;
 }
 

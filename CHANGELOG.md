@@ -5,6 +5,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Three-way comparison and defaulted comparisons (C++20, feature `three-way-comparison`):
+  - `a <=> b` on a class's `operator<=>`, and on numbers, which gives `std::strong_ordering` for integers and `std::partial_ordering` for floating point;
+  - `<compare>` has `std::strong_ordering`, `std::weak_ordering` and `std::partial_ordering`, compared with `0`, each converting to the weaker ones;
+  - `auto operator<=>(const P&) const = default;` compares member by member in their common category, and declares a defaulted `operator==` if the class has none;
+  - `a < b`, `<=`, `>`, `>=` are rewritten to `(a <=> b) < 0`..., and `a != b` to `!(a == b)`, when the class has no such operator, so `std::sort` of such a class needs no comparator.
 - Designated initializers (C++20, feature `designated-initializers`): `Order o = {.x = 5, .y = 2};`, `Order{.y = 2}`. Members without a designator are value-initialized or take their default member initializer.
 - E0242 `designator-order` (`member`): a designator out of declaration order, repeated, or mixed with undesignated elements. A designator naming no member is E0218 `no-member`. Messages in cppi-run's English and Spanish catalogs.
 - Direct-list-initialization `T{...}` (C++11): `Order{5, 2}`, `Point{1, 2}` (a constructor), `int{3}`, `int{}`, `std::vector<int>{1, 2}`, as a temporary, an argument or `auto p = Point{1, 2};`. It gave E0303 `unsupported-syntax`.
@@ -23,6 +28,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - From C++11 on, a narrowing conversion inside braces is an error (E0241), as in real C++. `int a[] = {2.5};` compiled before; it still does at C++98.
 
 ### Fixed
+- `bool operator==(const P&) const = default;` compares the members. It was given an empty body, which ended without returning a value at run time (E0508).
+- A cast to a class (`static_cast<T>(x)`) uses `x` itself, a conversion operator of `x` or a constructor of `T`. It gave E0211 `cannot-convert`.
 - A range-for destroys the temporaries of its range when the loop ends. A returned `std::vector`, for example, was never destroyed, which leaked its storage (E0510) and skipped its elements' destructors.
 - A data member that is a function object can be called: `comp_(a, b)` inside the class, and `obj.comp(a, b)` or `p->comp(a, b)` outside it. This gave E0200 `unknown-function` or E0204 `not-callable`.
 - `std::vector` constructs and destroys only the elements it holds, as a real one does:

@@ -917,6 +917,109 @@ void DeclarationBinder::define_out_of_class(const ast::FunctionDecl& decl, Sourc
                                              NameSuggester::closest(name, ctx_.expressions->members().names(record))));
 }
 
+namespace {
+
+ast::ExprPtr own(SourceRange range, auto node) {
+    auto e = std::make_unique<ast::Expr>();
+    e->range = range;
+    e->node = std::move(node);
+    return e;
+}
+
+/// `this->name` or `__other.name`.
+ast::ExprPtr member_of(bool self, const std::string& name, SourceRange range) {
+    ast::MemberExpr m;
+    m.base = self ? own(range, ast::ThisExpr{}) : own(range, ast::Identifier{"__other", {}});
+    m.member = name;
+    m.member_range = range;
+    m.arrow = self;
+    return own(range, std::move(m));
+}
+
+ast::ExprPtr binary(ast::BinaryOp op, ast::ExprPtr lhs, ast::ExprPtr rhs, SourceRange range) {
+    ast::BinaryExpr b;
+    b.op = op;
+    b.lhs = std::move(lhs);
+    b.rhs = std::move(rhs);
+    return own(range, std::move(b));
+}
+
+ast::ExprPtr zero(SourceRange range) {
+    ast::IntLiteral literal;
+    literal.text = "0";
+    return own(range, std::move(literal));
+}
+
+}  // namespace
+
+const std::vector<ast::Stmt>* DeclarationBinder::synthesize_comparison(std::uint32_t id) {
+    // C++20 [class.compare.default]: `this->m == __other.m && ...` for operator==,
+    // and for operator<=> the first member comparison that is not equal, in the
+    // common category (strong_ordering, or partial_ordering with a floating member).
+    const FunctionInfo& info = ctx_.functions[id];
+    const RecordInfo& r = ctx_.types.record_at(*info.record);
+    const SourceRange range = info.range;
+    if (!r.bases.empty()) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "defaulted comparison of a class with bases"));
+        return nullptr;
+    }
+    std::vector<std::string> fields;
+    bool floating = false;
+    for (const FieldInfo& f : r.fields) {
+        fields.push_back(f.name);
+        floating = floating || ctx_.types.kind(f.type) == TypeKind::Double;
+    }
+    ast::ExprPtr result;
+    if (info.implicit == FunctionInfo::Implicit::EqualityComparison) {
+        result = own(range, ast::BoolLiteral{true});
+        for (auto it = fields.rbegin(); it != fields.rend(); ++it) {
+            auto equal = binary(ast::BinaryOp::Eq, member_of(true, *it, range), member_of(false, *it, range), range);
+            result = it == fields.rbegin()
+                         ? std::move(equal)
+                         : binary(ast::BinaryOp::LogicalAnd, std::move(equal), std::move(result), range);
+        }
+    } else {
+        const auto category = [&] {
+            ast::TypeDesc desc;
+            desc.spec.name = floating ? "partial_ordering" : "strong_ordering";
+            desc.spec.scope = {"std"};
+            desc.spec.range = range;
+            return desc;
+        };
+        const auto in_category = [&](const std::string& field) {
+            ast::CastExpr cast;
+            cast.kind = ast::CastKind::Functional;
+            cast.type = category();
+            cast.operand =
+                binary(ast::BinaryOp::ThreeWay, member_of(true, field, range), member_of(false, field, range), range);
+            return own(range, std::move(cast));
+        };
+        ast::InitList equivalent;  // `std::strong_ordering{0}`: all members equal
+        equivalent.elements.push_back(std::move(*zero(range)));
+        ast::CastExpr last;
+        last.kind = ast::CastKind::List;
+        last.type = category();
+        last.operand = own(range, std::move(equivalent));
+        result = own(range, std::move(last));
+        for (auto it = fields.rbegin(); it != fields.rend(); ++it) {
+            ast::ConditionalExpr pick;
+            pick.condition = binary(ast::BinaryOp::Ne, in_category(*it), zero(range), range);
+            pick.then_expr = in_category(*it);
+            pick.else_expr = std::move(result);
+            result = own(range, std::move(pick));
+        }
+    }
+    ast::ReturnStmt ret;
+    ret.value = std::move(result);
+    ast::Stmt stmt;
+    stmt.range = range;
+    stmt.node = std::move(ret);
+    std::vector<ast::Stmt> statements;
+    statements.push_back(std::move(stmt));
+    synthesized_.push_back(std::move(statements));
+    return &synthesized_.back();
+}
+
 void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* decl) {
     const TypeTable& types = ctx_.types;
     FunctionInfo& info = ctx_.functions[id];
@@ -932,7 +1035,8 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
     fc.const_this = info.is_const;
     fc.has_this = !info.is_static;
     fc.deduce_return =
-        deduce_next_ || (decl != nullptr && decl->return_type.name == "auto" && decl->declarator.parts.empty());
+        deduce_next_ || (decl != nullptr && decl->return_type.name == "auto" && decl->declarator.parts.empty() &&
+                         info.implicit != FunctionInfo::Implicit::ThreeWayComparison);
     deduce_next_ = false;
     FunctionContext* previous = ctx_.fn;
     ctx_.fn = &fc;
@@ -985,7 +1089,9 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
         for (auto& cleanup : ctx_.statements->release_temporaries(0)) {
             body.statements.push_back(std::move(cleanup));
         }
-    } else if (info.implicit != FunctionInfo::Implicit::None && info.record) {
+    } else if ((info.implicit == FunctionInfo::Implicit::CopyConstructor ||
+                info.implicit == FunctionInfo::Implicit::CopyAssignment) &&
+               info.record) {
         Symbol* other_symbol = ctx_.symbols.current().find("__other");
         auto other = ctx_.expressions->variable(*other_symbol, "__other", info.range);
         if (info.implicit == FunctionInfo::Implicit::CopyConstructor) {
@@ -1014,7 +1120,12 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
         }
     }
     const std::size_t errors_before = ctx_.sink.errors();
-    if (decl != nullptr && decl->body) {
+    if (info.implicit == FunctionInfo::Implicit::EqualityComparison ||
+        info.implicit == FunctionInfo::Implicit::ThreeWayComparison) {
+        if (const auto* statements = synthesize_comparison(id)) {
+            ctx_.statements->bind_statements(*statements, body.statements);
+        }
+    } else if (decl != nullptr && decl->body) {
         if (const auto* block = std::get_if<ast::Block>(&decl->body->node)) {
             ctx_.statements->bind_statements(block->statements, body.statements);
         }
@@ -1419,6 +1530,25 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
             } else if (name == "operator=" && copy_like) {
                 info.implicit = FunctionInfo::Implicit::CopyAssignment;
                 info.params[0].name = "__other";
+            } else if ((name == "operator==" || name == "operator<=>") && copy_like &&
+                       ctx_.features.allow(Feature::ThreeWayComparison, m.declarator.range)) {
+                // C++20 defaulted comparisons: compared member by member (define_body).
+                info.implicit = name == "operator==" ? FunctionInfo::Implicit::EqualityComparison
+                                                     : FunctionInfo::Implicit::ThreeWayComparison;
+                info.params[0].name = "__other";
+                // `auto operator<=>(...) const = default;` returns the members' common
+                // category, known now: strong_ordering, or partial_ordering with a double.
+                if (info.implicit == FunctionInfo::Implicit::ThreeWayComparison && m.return_type.name == "auto") {
+                    bool floating = false;
+                    for (const FieldInfo& f : types.record_at(record).fields) {
+                        floating = floating || types.kind(f.type) == TypeKind::Double;
+                    }
+                    const Symbol* category =
+                        ctx_.symbols.lookup_qualified({"std"}, floating ? "partial_ordering" : "strong_ordering");
+                    if (category != nullptr && category->kind == SymbolKind::Type) {
+                        info.return_type = category->type;
+                    }
+                }
             }
         }
 
@@ -1557,6 +1687,35 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
             if (virtual_base_dtor) {
                 types.record_at(record).virtual_functions.push_back(id);
             }
+            bodies.emplace_back(id, nullptr);
+        }
+    }
+
+    // [class.compare.default]: a defaulted operator<=> also declares a defaulted
+    // operator== if the class declares none.
+    {
+        const RecordInfo& r = types.record_at(record);
+        bool three_way = false;
+        if (auto it = r.methods.find("operator<=>"); it != r.methods.end()) {
+            for (const std::uint32_t id : it->second) {
+                three_way = three_way || ctx_.functions[id].implicit == FunctionInfo::Implicit::ThreeWayComparison;
+            }
+        }
+        if (three_way && !r.methods.contains("operator==")) {
+            FunctionInfo info;
+            info.name = "operator==";
+            info.display = r.name + "::operator==";
+            info.return_type = TypeTable::kBool;
+            info.range = def.name_range;
+            info.record = record;
+            info.is_const = true;
+            info.implicit = FunctionInfo::Implicit::EqualityComparison;
+            ParamInfo other;
+            other.name = "__other";
+            other.type = types.reference_to(types.record_type(record), true);
+            info.params.push_back(other);
+            const std::uint32_t id = add_function(std::move(info));
+            types.record_at(record).methods["operator=="].push_back(id);
             bodies.emplace_back(id, nullptr);
         }
     }

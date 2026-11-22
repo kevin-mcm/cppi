@@ -69,7 +69,16 @@ struct FunctionInfo {
     bool is_constexpr = false;  ///< may run at compile time (ConstexprInterpreter)
 
     /// Member functions the compiler writes itself, member by member.
-    enum class Implicit : std::uint8_t { None, CopyConstructor, CopyAssignment, DefaultConstructor };
+    /// EqualityComparison and ThreeWayComparison: a defaulted operator== or
+    /// operator<=> (C++20), compared member by member.
+    enum class Implicit : std::uint8_t {
+        None,
+        CopyConstructor,
+        CopyAssignment,
+        DefaultConstructor,
+        EqualityComparison,
+        ThreeWayComparison
+    };
     /// Which implicit member function it is, if any.
     Implicit implicit = Implicit::None;
 

@@ -91,7 +91,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | `references` | C++98 | | `delegating-constructors` | C++11 |
 | `templates` | C++98 | | `initializer-lists` | C++11 |
 | `namespaces` | C++98 | | `designated-initializers` | C++20 |
-| `exceptions` | C++98 | | | |
+| `exceptions` | C++98 | | `three-way-comparison` | C++20 |
 | `preprocessor` | C++98 | | | |
 
 `concepts` also covers constrained template parameters (`template <Number T>`) and `auto` parameters of functions (`void f(auto x)`), which are C++20 abbreviated templates. `strings` (the old feature key for string literals) and `preprocessor` (`#define` and friends) are recognized but not implemented yet; `#include` is accepted and ignored.

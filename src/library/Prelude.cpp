@@ -151,6 +151,83 @@ constexpr std::string_view kSource = R"cpp(
         return !(x < y);
     }
 
+    // --- <compare> (C++20): what `a <=> b` returns ------------------------------------------
+    // __value is -1 (less), 0 (equal or equivalent), 1 (greater) or 2 (unordered).
+    // A category converts to a weaker one; each compares with the literal 0.
+    struct partial_ordering {
+        int __value;
+    };
+    struct weak_ordering {
+        int __value;
+        operator partial_ordering() const { return partial_ordering{__value}; }
+    };
+    struct strong_ordering {
+        int __value;
+        operator weak_ordering() const { return weak_ordering{__value}; }
+        operator partial_ordering() const { return partial_ordering{__value}; }
+    };
+    bool operator==(partial_ordering o, int) {
+        return o.__value == 0;
+    }
+    bool operator!=(partial_ordering o, int) {
+        return o.__value != 0;
+    }
+    bool operator<(partial_ordering o, int) {
+        return o.__value == -1;
+    }
+    bool operator<=(partial_ordering o, int) {
+        return o.__value == -1 || o.__value == 0;
+    }
+    bool operator>(partial_ordering o, int) {
+        return o.__value == 1;
+    }
+    bool operator>=(partial_ordering o, int) {
+        return o.__value == 1 || o.__value == 0;
+    }
+    bool operator==(weak_ordering o, int) {
+        return o.__value == 0;
+    }
+    bool operator!=(weak_ordering o, int) {
+        return o.__value != 0;
+    }
+    bool operator<(weak_ordering o, int) {
+        return o.__value < 0;
+    }
+    bool operator<=(weak_ordering o, int) {
+        return o.__value <= 0;
+    }
+    bool operator>(weak_ordering o, int) {
+        return o.__value > 0;
+    }
+    bool operator>=(weak_ordering o, int) {
+        return o.__value >= 0;
+    }
+    bool operator==(strong_ordering o, int) {
+        return o.__value == 0;
+    }
+    bool operator!=(strong_ordering o, int) {
+        return o.__value != 0;
+    }
+    bool operator<(strong_ordering o, int) {
+        return o.__value < 0;
+    }
+    bool operator<=(strong_ordering o, int) {
+        return o.__value <= 0;
+    }
+    bool operator>(strong_ordering o, int) {
+        return o.__value > 0;
+    }
+    bool operator>=(strong_ordering o, int) {
+        return o.__value >= 0;
+    }
+    // `a <=> b` on numbers (sema calls these).
+    strong_ordering __cppi_three_way(long a, long b) {
+        return strong_ordering{a < b ? -1 : (b < a ? 1 : 0)};
+    }
+    partial_ordering __cppi_three_way_floating(double a, double b) {
+        return partial_ordering{a < b ? -1 : (b < a ? 1 : (a == b ? 0 : 2))};
+    }
+
     // --- Function objects (<functional>) ------------------------------------------------
 
     template <class T>

@@ -1134,3 +1134,47 @@ TEST(Modern, DesignatedInitializers) {
     EXPECT_EQ(compile_error(std::string(order) + "Order o = {.w = 1};\n", cpp20), DiagCode::NoMember);
     EXPECT_EQ(compile_error(std::string(order) + "Order o = {.x = 5};\n", cpp17), DiagCode::FeatureRequiresStandard);
 }
+
+TEST(Modern, ThreeWayComparisonAndDefaultedComparisons) {
+    // C++20: operator<=> (defaulted member by member, or on numbers), the
+    // rewritten <, <=, >, >= and !=, and the operator== a defaulted <=> declares.
+    EXPECT_EQ(printed(R"(#include <compare>
+        struct P {
+        int x;
+        int y;
+        auto operator<=>(const P&) const = default;
+        };
+        struct Q {
+        int x;
+        bool operator==(const Q&) const = default;
+        };
+        struct D {
+        double v;
+        auto operator<=>(const D&) const = default;
+        };
+        P a{1, 2};
+        P b{1, 3};
+        std::cout << (a < b) << (a <= b) << (a > b) << (a >= b) << (a == b) << (a != b) << (a == a) << " ";
+        std::vector<P> ps;
+        ps.push_back(P{2, 0});
+        ps.push_back(P{1, 5});
+        ps.push_back(P{1, 4});
+        std::sort(ps.begin(), ps.end());
+        std::cout << ps[0].y << ps[1].y << ps[2].x << " ";
+        std::strong_ordering r = a <=> b;
+        int i = 3;
+        int j = 7;
+        std::cout << (r < 0) << ((i <=> j) < 0) << ((j <=> i) > 0) << ((i <=> i) == 0) << ((2.5 <=> 1.0) > 0) << " ";
+        Q q1{4};
+        Q q2{5};
+        std::cout << (q1 == q2) << (q1 != q2) << " ";
+        D d1{1.5};
+        D d2{2.0};
+        std::cout << (d1 < d2) << (d2 < d1);
+    )",
+                      standard(Standard::Cpp20)),
+              "1100011 452 11111 01 10");
+    EXPECT_EQ(compile_error("int a = 1;\nbool r = (a <=> a) == 0;\n", cpp17), DiagCode::FeatureRequiresStandard);
+    EXPECT_EQ(compile_error("struct P {\n    int x;\n    bool operator==(const P&) const = default;\n};\n", cpp17),
+              DiagCode::FeatureRequiresStandard);
+}

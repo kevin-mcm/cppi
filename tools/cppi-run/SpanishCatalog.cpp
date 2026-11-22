@@ -129,6 +129,7 @@ constexpr MessageEntry kFeatures[] = {
     {"delegating-constructors", "los constructores delegados"},
     {"initializer-lists", "las listas de inicialización"},
     {"designated-initializers", "los inicializadores designados"},
+    {"three-way-comparison", "el operador de comparación de tres vías <=> y las comparaciones por defecto"},
 };
 
 constexpr MessageEntry kUi[] = {

@@ -53,6 +53,7 @@ std::string_view op_text(ast::BinaryOp op) {
         case BinaryOp::Le: return "<=";
         case BinaryOp::Ge: return ">=";
         case BinaryOp::Comma: return ",";
+        case BinaryOp::ThreeWay: return "<=>";
     }
     return "?";
 }
@@ -1459,8 +1460,32 @@ BExprPtr ExpressionBinder::binary(const ast::BinaryExpr& b, SourceRange range) {
         return nullptr;
     }
     const std::string name = "operator" + std::string(op_text(b.op));
-    if ((types.is_record(lhs->type) || types.is_record(rhs->type)) && has_operator(name, *lhs, rhs.get())) {
+    const bool records = types.is_record(lhs->type) || types.is_record(rhs->type);
+    if (b.op == ast::BinaryOp::ThreeWay) {
+        return three_way(std::move(lhs), std::move(rhs), range);
+    }
+    if (records && has_operator(name, *lhs, rhs.get())) {
         return call_operator(name, std::move(lhs), std::move(rhs), range);
+    }
+    // C++20 rewritten candidates ([over.match.oper]): `a < b` as `(a <=> b) < 0`,
+    // and `a != b` as `!(a == b)`, when the class has only those operators.
+    if (records && ctx_.features.standard_allows(Feature::ThreeWayComparison)) {
+        const bool relational = b.op == ast::BinaryOp::Lt || b.op == ast::BinaryOp::Gt || b.op == ast::BinaryOp::Le ||
+                                b.op == ast::BinaryOp::Ge;
+        if (relational && has_operator("operator<=>", *lhs, rhs.get())) {
+            auto order = call_operator("operator<=>", std::move(lhs), std::move(rhs), range);
+            if (!order) {
+                return nullptr;
+            }
+            return call_operator(name, std::move(order), constant(TypeTable::kInt, 0, range), range);
+        }
+        if (b.op == ast::BinaryOp::Ne && has_operator("operator==", *lhs, rhs.get())) {
+            auto equal = to_condition(call_operator("operator==", std::move(lhs), std::move(rhs), range));
+            if (!equal) {
+                return nullptr;
+            }
+            return make(TypeTable::kBool, false, range, BUnary{UnOp::Not, ScalarKind::Int32, std::move(equal)});
+        }
     }
     // Built-in operators accept classes that convert to a number.
     lhs = to_number(std::move(lhs));
@@ -1469,6 +1494,42 @@ BExprPtr ExpressionBinder::binary(const ast::BinaryExpr& b, SourceRange range) {
         return nullptr;
     }
     return arithmetic(b.op, to_rvalue(std::move(lhs)), to_rvalue(std::move(rhs)), range);
+}
+
+BExprPtr ExpressionBinder::three_way(BExprPtr lhs, BExprPtr rhs, SourceRange range) {
+    // `a <=> b` (C++20): a class's operator<=>, or for numbers std::strong_ordering
+    // (integers) or std::partial_ordering (floating point), from the prelude.
+    const TypeTable& types = ctx_.types;
+    if (!ctx_.features.allow(Feature::ThreeWayComparison, range)) {
+        return nullptr;
+    }
+    if (types.is_record(lhs->type) || types.is_record(rhs->type)) {
+        if (!has_operator("operator<=>", *lhs, rhs.get())) {
+            report_invalid_operands("<=>", *lhs, rhs.get(), range);
+            return nullptr;
+        }
+        return call_operator("operator<=>", std::move(lhs), std::move(rhs), range);
+    }
+    lhs = to_rvalue(std::move(lhs));
+    rhs = to_rvalue(std::move(rhs));
+    if (!lhs || !rhs) {
+        return nullptr;
+    }
+    if (!types.is_arithmetic(lhs->type) || !types.is_arithmetic(rhs->type)) {
+        report_invalid_operands("<=>", *lhs, rhs.get(), range);
+        return nullptr;
+    }
+    const bool floating = types.kind(lhs->type) == TypeKind::Double || types.kind(rhs->type) == TypeKind::Double;
+    const char* helper = floating ? "__cppi_three_way_floating" : "__cppi_three_way";
+    Symbol* symbol = ctx_.symbols.lookup_qualified({"std"}, helper);
+    if (symbol == nullptr || symbol->kind != SymbolKind::Functions) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "<=>"));
+        return nullptr;
+    }
+    std::vector<BExprPtr> args;
+    args.push_back(std::move(lhs));
+    args.push_back(std::move(rhs));
+    return call_candidates(helper, symbol->functions, std::move(args), range, range, nullptr, false);
 }
 
 BExprPtr ExpressionBinder::arithmetic(ast::BinaryOp op, BExprPtr lhs, BExprPtr rhs, SourceRange range) {
@@ -1912,6 +1973,20 @@ BExprPtr ExpressionBinder::cast(const ast::CastExpr& c, SourceRange range) {
     auto operand = bind_rvalue(*c.operand);
     if (!operand) {
         return nullptr;
+    }
+    if (types.is_record(target->type)) {
+        // `T(x)` to a class: x itself, a conversion operator of x, or a constructor of T.
+        if (operand->type == target->type) {
+            return operand;
+        }
+        if (types.is_record(operand->type)) {
+            if (auto op = ctx_.overloads->conversion_operator(operand->type, target->type, true)) {
+                return call_conversion(std::move(operand), *op);
+            }
+        }
+        std::vector<BExprPtr> args;
+        args.push_back(std::move(operand));
+        return construct_temporary(target->type, std::move(args), range);
     }
     if (types.is_record(operand->type) && !types.is_record(target->type)) {
         if (auto op = ctx_.overloads->conversion_operator(operand->type, target->type, true)) {

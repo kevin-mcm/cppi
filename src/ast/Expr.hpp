@@ -132,6 +132,8 @@ enum class BinaryOp : std::uint8_t {
     Ge,
     /// `,`
     Comma,
+    /// `<=>` (C++20)
+    ThreeWay,
 };
 
 // --- Expression nodes -------------------------------------------------------------
