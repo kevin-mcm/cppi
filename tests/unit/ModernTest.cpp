@@ -1117,7 +1117,6 @@ TEST(Modern, NarrowingInsideBracesIsAnError) {
 TEST(Modern, DesignatedInitializers) {
     // C++20: members named by designators; the others are value-initialized
     // (or take their default member initializer).
-    const Options cpp20 = standard(Standard::Cpp20);
     EXPECT_EQ(printed(R"(
         struct Order { int x; int y; int z = 7; };
         Order o = {.x = 5, .y = 2};
@@ -1185,7 +1184,6 @@ TEST(Modern, ThreeWayComparisonAndDefaultedComparisons) {
 TEST(Modern, ConstevalFunctionsRunAtCompileTime) {
     // C++20 consteval: every call is a constant (usable as an array bound), and
     // a call inside another consteval function is evaluated with it.
-    const Options cpp20 = standard(Standard::Cpp20);
     EXPECT_EQ(printed(R"(
         consteval int sq(int x) { return x * x; }
         consteval int quad(int x) { return sq(x) * sq(x); }
