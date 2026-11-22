@@ -838,6 +838,48 @@ constexpr std::string_view kSource = R"cpp(
         int capacity_;
     };
 
+    // --- std::array (C++11) --------------------------------------------------------------
+    // An aggregate around a built-in array: `std::array<int, 3> a = {1, 2, 3};`
+    // (brace elision), copied by value, indexed with E0503 out of range.
+    template <class T, int N>
+    struct array {
+        T __elems[N];
+
+        int size() const { return N; }
+        bool empty() const { return N == 0; }
+        T& operator[](int i) {
+            __cppi_check_index(i, N);
+            return __elems[i];
+        }
+        const T& operator[](int i) const {
+            __cppi_check_index(i, N);
+            return __elems[i];
+        }
+        T& at(int i) {
+            if (i < 0 || i >= N) {
+                throw out_of_range("array::at: index out of range");
+            }
+            return __elems[i];
+        }
+        const T& at(int i) const {
+            if (i < 0 || i >= N) {
+                throw out_of_range("array::at: index out of range");
+            }
+            return __elems[i];
+        }
+        T& front() { return (*this)[0]; }
+        T& back() { return (*this)[N - 1]; }
+        T* begin() { return __elems; }
+        T* end() { return __elems + N; }
+        const T* begin() const { return __elems; }
+        const T* end() const { return __elems + N; }
+        void fill(const T& value) {
+            for (int i = 0; i < N; ++i) {
+                __elems[i] = value;
+            }
+        }
+    };
+
     // --- Container adaptors: std::queue, std::stack, std::priority_queue -----------------
     // front, back, top and pop on an empty adaptor are undefined in real C++;
     // here they stop with E0503 out-of-bounds, as vector::back does.

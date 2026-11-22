@@ -434,6 +434,13 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             }
             return construct(std::move(target), type, std::move(args), range, out);
         }
+        // Brace elision: `std::array<int, 3> a = {1, 2, 3};` initializes the
+        // aggregate's only member, an array, from the whole list.
+        if (list.designators.empty() && info.fields.size() == 1 && types.is_array(info.fields.front().type) &&
+            !(items.size() == 1 && std::holds_alternative<ast::InitList>(items.front().node))) {
+            const FieldInfo field = info.fields.front();
+            return initialize_list(field_of(*target, field), field.type, list, range, out);
+        }
         // An aggregate: one initializer per field, in order, or by designator.
         if (items.size() > info.fields.size()) {
             ctx_.report(DiagnosticFactory::too_many_initializers(range, info.fields.size(), items.size()));

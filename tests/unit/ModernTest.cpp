@@ -1265,3 +1265,32 @@ TEST(Modern, NonTypeTemplateParameters) {
                       standard(Standard::Cpp98)),
               "8");
 }
+
+TEST(Modern, StdArray) {
+    // An aggregate around a built-in array: brace elision, size, [] and at(),
+    // iteration, std::sort, copies by value.
+    EXPECT_EQ(printed(R"(#include <array>
+        std::array<int, 3> a = {3, 1, 2};
+        std::cout << a.size() << a[0] << a.front() << a.back() << " ";
+        std::sort(a.begin(), a.end());
+        for (int x : a) {
+            std::cout << x;
+        }
+        std::array<int, 3> b = a;
+        b[0] = 9;
+        std::cout << " " << a[0] << b[0] << " ";
+        try {
+            a.at(5);
+        } catch (const std::out_of_range& e) {
+            std::cout << "R";
+        }
+        std::array<int, 2> z{};
+        std::array<std::string, 2> words{"ab", "c"};
+        std::cout << z[1] << words[0] << words[1].size() << a.empty();
+    )",
+                      cpp11),
+              "3332 123 19 R0ab10");
+    auto d = runtime_error("std::array<int, 3> a = {1, 2, 3};\nint x = a[3];\n", cpp11);
+    EXPECT_EQ(d.code, DiagCode::OutOfBounds);
+    EXPECT_EQ(d.range.begin.line, 2);
+}

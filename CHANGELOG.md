@@ -5,6 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- `std::array<T, N>` (`<array>`): an aggregate around a built-in array with `size`, `empty`, `[]` (E0503 out of range), `at` (throws `std::out_of_range`), `front`, `back`, `begin`/`end` and `fill`, copied by value. Brace elision initializes it: `std::array<int, 3> a = {1, 2, 3};`.
 - Non-type template parameters: `template <int N>`, `template <class T, int N>`, with arguments such as `<int, 3>`, `<K>` (a constant) or `<N + 1>`. Inside the template `N` is a constant, also usable as an array bound. It is deduced from arguments such as `Buf<int, N>`, and `Buf<int, 3>` and `Buf<int, 4>` are distinct types. They gave E0303 `unsupported-syntax`.
 - Lambdas capture `this`:
   - `[this]`, and `[=]` or `[&]` in a member function, reach `this` and the object's members and member functions;
