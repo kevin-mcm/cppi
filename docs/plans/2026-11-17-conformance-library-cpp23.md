@@ -408,6 +408,11 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
   - comparisons.
 - [ ] **Implement** (up to 4 elements, like `variant`, unless variadic templates exist), **run, commit** `feat(library): std::tuple`.
 
+**Done (2026-11-22):**
+- `tuple<A, B, C, D>` defaults its unused elements to `__tuple_none`. Structured bindings skip those.
+- `std::get<I>` on a tuple or a pair is lowered by sema to the field (`ExpressionBinder::tuple_get`): its type depends on `I`, and the prelude cannot express that without partial specialization (C17).
+- `std::tie` returns a struct of pointers (`__tie2`, `__tie3`), assignable from a `pair<A, B>` or a `tuple` of the tied types, not `std::tuple<A&, B&>`.
+
 ### Task C16b: function pointers (found in C7)
 
 **Problem:** a function's name is not a value in cppi. `std::count_if(b, e, even)`, `int (*f)(int) = &twice;`, `f(3)` and passing `f` on all fail, with E0206 `function-not-called` or E0214. These are C++98 and common in teaching, and C17's `std::function` from a free function needs them.
