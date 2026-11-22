@@ -287,7 +287,7 @@ bool StatementBinder::bind_in_place(const ast::CallExpr& call, SourceRange range
         (!construct && call.callee != "__cppi_destroy") || !arity) {
         return false;
     }
-    TypeTable& types = ctx_.types;
+    const TypeTable& types = ctx_.types;
     auto pointer = ctx_.expressions->bind(call.args.front());
     if (!pointer) {
         return true;
@@ -576,6 +576,9 @@ BExprPtr StatementBinder::braced_range(const ast::InitList& list, SourceRange ra
             return nullptr;
         }
         element = bound->type;
+    }
+    if (!element) {
+        return nullptr;
     }
     const auto type = ctx_.templates->instantiate_library("initializer_list", {*element}, range);
     if (!type) {

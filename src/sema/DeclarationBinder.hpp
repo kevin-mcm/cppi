@@ -127,7 +127,9 @@ public:
     /// functions written in the class unbound and appends them here: a class
     /// template instance defines each one on first use ([temp.inst]), so a
     /// member some type does not support is an error only if it is used.
-    std::vector<std::pair<std::uint32_t, const ast::FunctionDecl*>>* deferred_bodies = nullptr;
+    std::vector<std::pair<std::uint32_t, const ast::FunctionDecl*>>*
+        deferred_bodies =  // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+        nullptr;
 
 private:
     /// A resolved function signature.

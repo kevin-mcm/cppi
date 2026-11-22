@@ -968,6 +968,9 @@ const std::vector<ast::Stmt>* DeclarationBinder::synthesize_comparison(std::uint
     // and for operator<=> the first member comparison that is not equal, in the
     // common category (strong_ordering, or partial_ordering with a floating member).
     const FunctionInfo& info = ctx_.functions[id];
+    if (!info.record) {
+        return nullptr;
+    }
     const RecordInfo& r = ctx_.types.record_at(*info.record);
     const SourceRange range = info.range;
     if (!r.bases.empty()) {

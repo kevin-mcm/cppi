@@ -31,6 +31,8 @@ public:
     ScopedEntry(std::string name, Standard since);
     ScopedEntry(const ScopedEntry&) = delete;
     ScopedEntry& operator=(const ScopedEntry&) = delete;
+    ScopedEntry(ScopedEntry&&) = delete;
+    ScopedEntry& operator=(ScopedEntry&&) = delete;
     ~ScopedEntry();
 
 private:

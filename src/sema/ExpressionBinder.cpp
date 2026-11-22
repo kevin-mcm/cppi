@@ -363,6 +363,7 @@ BExprPtr ExpressionBinder::function_pointer(std::uint32_t function, SourceRange 
     }
     const FunctionInfo& fn = ctx_.functions[function];
     std::vector<TypeRef> params;
+    params.reserve(fn.params.size());
     for (const ParamInfo& p : fn.params) {
         params.push_back(p.type);
     }
@@ -372,7 +373,7 @@ BExprPtr ExpressionBinder::function_pointer(std::uint32_t function, SourceRange 
 }
 
 BExprPtr ExpressionBinder::indirect_call(BExprPtr target, std::vector<BExprPtr> args, SourceRange range) {
-    TypeTable& types = ctx_.types;
+    const TypeTable& types = ctx_.types;
     if (!target) {
         return nullptr;
     }
@@ -440,7 +441,10 @@ BExprPtr ExpressionBinder::tuple_get(const ast::CallExpr& c, std::vector<BExprPt
         ctx_.report(DiagnosticFactory::not_constant(desc.spec.range));
         return nullptr;
     }
-    const std::string name = pair ? (*index == 0 ? "first" : "second") : "__" + std::to_string(*index);
+    std::string name = "__" + std::to_string(*index);
+    if (pair) {
+        name = *index == 0 ? "first" : "second";
+    }
     return member_of(std::move(args.front()), name, range, range, false);
 }
 
@@ -564,7 +568,7 @@ BExprPtr ExpressionBinder::make_call(const Callee& callee, std::vector<BExprPtr>
     // C++20 consteval: the call is evaluated now (except inside another
     // consteval function, which is itself evaluated where it is called).
     const bool immediate = ctx_.functions[callee.id].is_consteval &&
-                           !(ctx_.fn != nullptr && ctx_.functions[ctx_.fn->function].is_consteval);
+                           (ctx_.fn == nullptr || !ctx_.functions[ctx_.fn->function].is_consteval);
     if (immediate && types.is_scalar(ret)) {
         const auto value = ctx_.constants.eval(*result);
         if (!value) {
@@ -2442,6 +2446,9 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
 }
 
 BExprPtr ExpressionBinder::lambda(const ast::LambdaExpr& l, SourceRange range) {
+    if (ctx_.fn == nullptr) {  // lambdas are bound inside a function (the script, at least)
+        return nullptr;
+    }
     TypeTable& types = ctx_.types;
     std::vector<DeclarationBinder::Capture> captures;
     std::vector<BExprPtr> sources;  // what each capture is initialized from
@@ -2577,7 +2584,7 @@ BExprPtr ExpressionBinder::allocate(TypeRef type, BExprPtr count, SourceRange ra
 }
 
 BExprPtr ExpressionBinder::deallocate(BExprPtr pointer, SourceRange range) {
-    TypeTable& types = ctx_.types;
+    const TypeTable& types = ctx_.types;
     if (!pointer) {
         return nullptr;
     }

@@ -1825,7 +1825,7 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
                     kind_of(designator) != "field_designator" || ts_node_named_child_count(child) != 2) {
                     return unsupported_expr(node);
                 }
-                std::string name(text(designator));
+                const std::string name(text(designator));
                 designators.push_back(name.substr(name.find_first_not_of(". \t")));
                 list.elements.push_back(convert_expr(value));
                 designated = true;

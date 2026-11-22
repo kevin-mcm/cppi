@@ -156,7 +156,7 @@ bool InitializerBinder::initialize_expr(BExprPtr target, TypeRef type, const ast
         return false;
     }
     return initialize_from(std::move(target), type, std::move(value), out);
-}
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks): owned by the variant
 
 bool InitializerBinder::initialize_from(BExprPtr target, TypeRef type, BExprPtr value, std::vector<BStmt>& out) {
     const TypeTable& types = ctx_.types;
@@ -323,7 +323,7 @@ bool InitializerBinder::initialize_initializer_list(BExprPtr target, TypeRef typ
     out.push_back(stmt(range, BStore{field_of(*target, *first), std::move(address)}));
     out.push_back(stmt(range, BStore{field_of(*target, *size), ExpressionBinder::constant(size->type, count, range)}));
     return true;
-}
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks): owned by the variant
 
 bool InitializerBinder::designate(TypeRef type, const ast::InitList& list, std::vector<const ast::Expr*>& given) {
     // C++20: `{.x = 5, .y = 2}` names the members in declaration order, each
@@ -345,6 +345,7 @@ bool InitializerBinder::designate(TypeRef type, const ast::InitList& list, std::
             std::find_if(fields.begin(), fields.end(), [&](const FieldInfo& f) { return f.name == name; });
         if (field == fields.end()) {
             std::vector<std::string> names;
+            names.reserve(fields.size());
             for (const auto& f : fields) {
                 names.push_back(f.name);
             }
@@ -465,7 +466,7 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
         // Brace elision: `std::array<int, 3> a = {1, 2, 3};` initializes the
         // aggregate's only member, an array, from the whole list.
         if (list.designators.empty() && info.fields.size() == 1 && types.is_array(info.fields.front().type) &&
-            !(items.size() == 1 && std::holds_alternative<ast::InitList>(items.front().node))) {
+            (items.size() != 1 || !std::holds_alternative<ast::InitList>(items.front().node))) {
             const FieldInfo field = info.fields.front();
             return initialize_list(field_of(*target, field), field.type, list, range, out);
         }
@@ -487,7 +488,7 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             out.push_back(stmt(range, BZero{LvalueCloner::clone(*target), types.cells(type)}));
         }
         for (std::size_t i = 0; i < fields.size(); ++i) {
-            const FieldInfo field = fields[i];
+            const FieldInfo& field = fields[i];
             auto slot = field_of(*target, field);
             bool ok = true;
             if (given[i] != nullptr) {
