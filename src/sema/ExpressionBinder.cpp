@@ -355,6 +355,34 @@ BExprPtr ExpressionBinder::this_pointer(SourceRange range) {
     return make(pointer, false, range, BLoad{std::move(var)});
 }
 
+BExprPtr ExpressionBinder::captured_this(SourceRange range) {
+    // Inside a lambda's operator(): the closure's __this (the object it captured
+    // with [this]), or the address of its __self (the copy made by [*this]).
+    if (ctx_.fn == nullptr || !ctx_.fn->record || !ctx_.fn->has_this) {
+        return nullptr;
+    }
+    const TypeTable& types = ctx_.types;
+    for (const FieldInfo& f : types.record_at(*ctx_.fn->record).fields) {
+        if (f.name != "__this" && f.name != "__self") {
+            continue;
+        }
+        auto closure = this_object(range);
+        if (!closure) {
+            return nullptr;
+        }
+        auto field = member_of(std::move(closure), f.name, range, range, false);
+        if (!field) {
+            return nullptr;
+        }
+        if (f.name == "__this") {
+            return to_rvalue(std::move(field));
+        }
+        const TypeRef pointer = ctx_.types.pointer_to(field->type, field->is_const);
+        return make(pointer, false, range, BAddressOf{std::move(field)});
+    }
+    return nullptr;
+}
+
 BExprPtr ExpressionBinder::this_object(SourceRange range) {
     auto self = this_pointer(range);
     if (!self) {
@@ -498,7 +526,10 @@ BExprPtr ExpressionBinder::bind_node(const ast::Expr& e, Use use) {
                 list->braced = &l;
                 return list;
             },
-            [&](const ast::ThisExpr&) { return this_pointer(range); },
+            [&](const ast::ThisExpr&) {
+                auto outer = captured_this(range);  // inside a lambda that captured `this`
+                return outer ? std::move(outer) : this_pointer(range);
+            },
             [&](const ast::NewExpr& n) { return new_expr(n, range); },
             [&](const ast::DeleteExpr& d) { return delete_expr(d, range); },
             [&](const ast::LambdaExpr& l) { return lambda(l, range); },
@@ -605,6 +636,25 @@ BExprPtr ExpressionBinder::identifier(const ast::Identifier& id, SourceRange ran
                 return nullptr;
             }
             return member_of(std::move(self), id.name, range, range, false);
+        }
+        // A lambda that captured `this`: the members of the enclosing object.
+        if (auto outer = captured_this(range)) {
+            const TypeInfo pointer = types.info(outer->type);
+            const std::uint32_t record = types.info(pointer.target).decl;
+            const MemberResult om = members_.find(record, id.name);
+            if (om.kind == MemberResult::Kind::Field) {
+                BDeref deref;
+                deref.cells = types.cells(pointer.target);
+                deref.pointer = std::move(outer);
+                auto object = make(pointer.target, true, range, std::move(deref));
+                object->is_const = pointer.target_const;
+                return member_of(std::move(object), id.name, range, range, false);
+            }
+            if (om.kind == MemberResult::Kind::Methods) {
+                const Severity severity = use == Use::Statement ? Severity::Warning : Severity::Error;
+                ctx_.report(DiagnosticFactory::function_not_called(range, id.name, severity));
+                return nullptr;
+            }
         }
     }
     if (symbol == nullptr) {
@@ -785,6 +835,26 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         if (m.kind == MemberResult::Kind::Ambiguous) {
             ctx_.report(DiagnosticFactory::ambiguous_name(c.callee_range, c.callee));
             return nullptr;
+        }
+        // A lambda that captured `this`: the enclosing object's member functions.
+        if (m.kind == MemberResult::Kind::None) {
+            if (auto outer = captured_this(c.callee_range)) {
+                const TypeInfo pointer = types.info(outer->type);
+                const MemberResult om = members_.find(types.info(pointer.target).decl, c.callee);
+                if (om.kind == MemberResult::Kind::Methods) {
+                    auto args = bind_args();
+                    if (!args) {
+                        return nullptr;
+                    }
+                    BDeref deref;
+                    deref.cells = types.cells(pointer.target);
+                    deref.pointer = std::move(outer);
+                    auto object = make(pointer.target, true, range, std::move(deref));
+                    object->is_const = pointer.target_const;
+                    return call_candidates(c.callee, {}, std::move(*args), range, c.callee_range, std::move(object),
+                                           true);
+                }
+            }
         }
         // A data member that is a function object: `comp_(a, b)` calls this->comp_.operator().
         if (m.kind == MemberResult::Kind::Field && types.is_record(m.field->type) &&
@@ -2162,12 +2232,36 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
 
 BExprPtr ExpressionBinder::lambda(const ast::LambdaExpr& l, SourceRange range) {
     TypeTable& types = ctx_.types;
-    if (l.captures_this) {
-        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "capturing this"));
-        return nullptr;
-    }
     std::vector<DeclarationBinder::Capture> captures;
     std::vector<BExprPtr> sources;  // what each capture is initialized from
+    // `[this]`, `[*this]` (C++17), or a default capture in a member function:
+    // the closure holds the object's address (__this) or a copy of it (__self),
+    // through which the body reaches `this` and the members.
+    const bool in_member = ctx_.fn != nullptr && ctx_.fn->record && ctx_.fn->has_this;
+    if (l.copies_this || l.captures_this || (l.default_capture != 0 && in_member)) {
+        if (l.copies_this && !ctx_.features.allow(Feature::LambdaCopiesThis, range)) {
+            return nullptr;
+        }
+        auto outer = captured_this(range);
+        auto pointer = outer ? std::move(outer) : this_pointer(range);
+        if (!pointer) {
+            return nullptr;
+        }
+        const TypeInfo target = types.info(pointer->type);
+        if (l.copies_this) {
+            BDeref deref;
+            deref.cells = types.cells(target.target);
+            deref.pointer = std::move(pointer);
+            auto object = make(target.target, true, range, std::move(deref));
+            object->is_const = target.target_const;
+            captures.push_back(DeclarationBinder::Capture{"__self", false, target.target, false});
+            sources.push_back(std::move(object));
+        } else {
+            const TypeRef type = pointer->type;
+            captures.push_back(DeclarationBinder::Capture{"__this", false, type, false});
+            sources.push_back(std::move(pointer));
+        }
+    }
     std::set<std::string> taken;
     for (const auto& p : l.function->params) {
         taken.insert(p.declarator.name);

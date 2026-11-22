@@ -107,6 +107,9 @@ public:
     /// `{5, 2}`, `v = {4, 5}`, `for (int x : {1, 2})`).
     [[nodiscard]] BExprPtr list_temporary(TypeRef type, const ast::InitList& list, SourceRange range);
 
+    /// Inside a lambda that captured `this` ([this], [*this] or a default
+    /// capture in a member function): the enclosing object's address; else null.
+    BExprPtr captured_this(SourceRange range);
     /// `a <=> b` (C++20).
     BExprPtr three_way(BExprPtr lhs, BExprPtr rhs, SourceRange range);
 

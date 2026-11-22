@@ -131,6 +131,7 @@ constexpr MessageEntry kFeatures[] = {
     {"designated-initializers", "designated initializers"},
     {"three-way-comparison", "the three-way comparison operator <=> and defaulted comparisons"},
     {"consteval", "consteval functions"},
+    {"lambda-copies-this", "capturing a copy of the object with [*this]"},
 };
 
 constexpr MessageEntry kUi[] = {

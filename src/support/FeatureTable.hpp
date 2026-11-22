@@ -71,6 +71,7 @@ inline constexpr std::array<FeatureRow, kFeatureCount> kFeatureTable{{
     {Feature::DesignatedInitializers, "designated-initializers", Standard::Cpp20},
     {Feature::ThreeWayComparison, "three-way-comparison", Standard::Cpp20},
     {Feature::Consteval, "consteval", Standard::Cpp20},
+    {Feature::LambdaCopiesThis, "lambda-copies-this", Standard::Cpp17},
 }};
 
 /// True if row i describes Feature i, for every row.

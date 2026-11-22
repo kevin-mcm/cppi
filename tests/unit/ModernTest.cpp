@@ -1198,3 +1198,46 @@ TEST(Modern, ConstevalFunctionsRunAtCompileTime) {
     EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 3);
     EXPECT_EQ(compile_error("consteval int sq(int x) { return x * x; }\n", cpp17), DiagCode::FeatureRequiresStandard);
 }
+
+TEST(Modern, LambdasCaptureThis) {
+    // [this] and [=] reach the members through the object's address; [*this]
+    // (C++17) holds a copy, so writing it leaves the object alone.
+    EXPECT_EQ(printed(R"(
+        struct Counter {
+            int n = 0;
+            int step = 1;
+            int twice() const { return 2 * n; }
+            void run() {
+                auto add = [this](int k) { n += k * step; };
+                add(3);
+                auto peek = [=]() { return n + twice(); };
+                auto me = [this]() { return this->n; };
+                auto copy = [*this]() mutable { n = 100; return n; };
+                std::cout << n << peek() << me() << copy() << n << " ";
+            }
+        };
+        Counter c;
+        c.run();
+        std::cout << c.n;
+    )",
+                      cpp17),
+              "3931003 3");
+    // The captured address dies with the object.
+    auto d = runtime_error(R"(struct S {
+    int v = 5;
+    int test() {
+        auto f = [this]() { return v; };
+        delete this;
+        return f();
+    }
+};
+S* s = new S;
+int x = s->test();
+)",
+                           cpp17);
+    EXPECT_EQ(d.code, DiagCode::UseAfterFree);
+    EXPECT_EQ(d.range.begin.line, 4);
+    EXPECT_EQ(compile_error("struct S {\n    int v = 0;\n    void f() { auto g = [*this]() { return v; }; }\n};\n",
+                            standard(Standard::Cpp14)),
+              DiagCode::FeatureRequiresStandard);
+}

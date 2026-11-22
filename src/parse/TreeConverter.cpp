@@ -2046,6 +2046,7 @@ ast::Expr TreeConverter::convert_lambda(TSNode node) const {
     const TSNode captures = field(node, "captures");
     if (!ts_node_is_null(captures)) {
         bool reference = false;
+        bool star = false;  // `*this`
         const std::uint32_t count = ts_node_child_count(captures);
         for (std::uint32_t i = 0; i < count; ++i) {
             const TSNode part = ts_node_child(captures, i);
@@ -2054,8 +2055,11 @@ ast::Expr TreeConverter::convert_lambda(TSNode node) const {
                 reference = true;
             } else if (kind == "lambda_default_capture") {
                 lambda.default_capture = text(part) == "&" ? '&' : '=';
+            } else if (kind == "*") {
+                star = true;
             } else if (kind == "this") {
-                lambda.captures_this = true;
+                (star ? lambda.copies_this : lambda.captures_this) = true;
+                star = false;
             } else if (kind == "identifier") {
                 lambda.captures.push_back(
                     ast::LambdaCapture{std::string(text(part)), reference, nullptr, range_of(part)});
@@ -2072,7 +2076,7 @@ ast::Expr TreeConverter::convert_lambda(TSNode node) const {
             } else if (kind == "," || kind == "[" || kind == "]") {
                 reference = false;
             } else {
-                return unsupported_expr(node);  // `*this`, pack expansions...
+                return unsupported_expr(node);  // pack expansions...
             }
         }
     }

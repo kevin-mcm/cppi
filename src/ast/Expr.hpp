@@ -355,6 +355,8 @@ struct LambdaExpr {
     char default_capture = 0;  ///< 0, '=' or '&'
     /// `[this]` given.
     bool captures_this = false;
+    /// `[*this]` given (C++17): the closure holds a copy of the object.
+    bool copies_this = false;
     /// `mutable` given.
     bool is_mutable = false;
     bool has_return_type = false;  ///< `-> T` given; otherwise deduced from the returns

@@ -103,6 +103,7 @@ enum class Feature : std::uint8_t {
     DesignatedInitializers,  ///< C++20: `Order o = {.x = 5, .y = 2};`
     ThreeWayComparison,      ///< C++20: `a <=> b`, defaulted `operator<=>` and `operator==`
     Consteval,               ///< C++20: `consteval int sq(int x)`, evaluated at compile time
+    LambdaCopiesThis,        ///< C++17: `[*this]`, a lambda holding a copy of the object
 
     Count  // must stay last
 };
