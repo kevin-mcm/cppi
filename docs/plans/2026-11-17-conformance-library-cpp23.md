@@ -370,6 +370,13 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
   - a lambda that captured `this` and runs after its object was freed with `delete` gives E0505 `use-after-free`. (If the object was a local of a function that returned, cppi reports E0512 `invalid-pointer` instead, so the test uses `new`/`delete`.)
 - [ ] **Implement, run, commit** `feat: lambdas capture this`.
 
+**Done (2026-11-22):**
+- The closure gets a field `__this` (the address) or `__self` (the copy, `[*this]`).
+- `ExpressionBinder::captured_this` gives the enclosing object's address in the body. The `this` keyword, unqualified fields and member function calls fall back to it when they are not the closure's own captures.
+- A default capture in a member function always holds `this`, which costs one cell even when the body does not use it.
+- `[*this]` got its own feature, `lambda-copies-this` (C++17).
+- The plan's "lambda runs after the object is destroyed" test uses `delete this` inside the member, because returning a closure from a function (a deduced class return type) is still unsupported.
+
 ### Task C15: `std::array`
 
 - [ ] **Tests:**
