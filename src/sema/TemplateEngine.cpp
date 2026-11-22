@@ -307,6 +307,7 @@ std::optional<TypeRef> TemplateEngine::instantiate_type(const ast::TypeSpec& spe
 
 std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const std::vector<ast::TypeDesc>& descs,
                                                          const std::string& name, SourceRange range) {
+    ctx_.allow_library_name(symbol, range, name);
     std::optional<std::uint32_t> template_id;
     if (symbol != nullptr && symbol->kind == SymbolKind::Template && templates_[symbol->templates.front()].is_class) {
         template_id = symbol->templates.front();
@@ -638,6 +639,14 @@ const std::vector<std::uint32_t>* TemplateEngine::member_templates(std::uint32_t
     return nullptr;
 }
 
+std::string_view TemplateEngine::library_class_name(TypeRef type) const {
+    const auto from = origin(type);
+    if (!from || !templates_[from->first].library) {
+        return {};
+    }
+    return templates_[from->first].name;
+}
+
 bool TemplateEngine::has_member_template(std::uint32_t record, std::string_view name) const {
     return member_templates(record, name) != nullptr;
 }
@@ -945,6 +954,7 @@ BExprPtr TemplateEngine::call(const ast::CallExpr& call, std::vector<BExprPtr> a
     }
     Symbol* symbol =
         call.scope.empty() ? ctx_.symbols.lookup(call.callee) : ctx_.symbols.lookup_qualified(call.scope, call.callee);
+    ctx_.allow_library_name(symbol, call.callee_range, call.callee);
     // Member function templates: `Factory::make<int>()`, or `get<int>(x)` inside the class.
     std::optional<std::uint32_t> member_record;
     if (call.scope.size() == 1 && symbol == nullptr) {

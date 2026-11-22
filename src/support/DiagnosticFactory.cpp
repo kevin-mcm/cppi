@@ -265,6 +265,11 @@ Diagnostic DiagnosticFactory::unsupported_syntax(SourceRange range, const std::s
     return make(DiagCode::UnsupportedSyntax, range, {{"construct", construct}});
 }
 
+Diagnostic DiagnosticFactory::library_requires_standard(SourceRange range, const std::string& name, Standard standard) {
+    return make(DiagCode::LibraryRequiresStandard, range,
+                {{"name", name}, {"standard", std::string(to_string(standard))}});
+}
+
 Diagnostic DiagnosticFactory::budget_exhausted(SourceRange range, std::uint64_t budget) {
     const auto clamped =
         static_cast<std::int64_t>(std::min<std::uint64_t>(budget, std::numeric_limits<std::int64_t>::max()));

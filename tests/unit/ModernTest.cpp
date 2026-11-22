@@ -24,6 +24,7 @@ using cppi_test::standard;
 namespace {
 
 const Options cpp11 = standard(Standard::Cpp11);
+const Options cpp14 = standard(Standard::Cpp14);
 const Options cpp17 = standard(Standard::Cpp17);
 
 }  // namespace
@@ -136,7 +137,7 @@ TEST(Modern, StdStringBehavesLikeAValue) {
         for (int i = 0; i < 3; ++i) if (words[i].size() > longest.size()) longest = words[i];
         cout << "|" << longest << "|" << name.substr(4, 4);
     )";
-    EXPECT_EQ(printed(program), "Ada Lovelace|Ada|12|1|-120|banana|Love");
+    EXPECT_EQ(printed(program, cpp11), "Ada Lovelace|Ada|12|1|-120|banana|Love");
 }
 
 TEST(Modern, TemporariesAndCopiesRunConstructorsAndDestructors) {
@@ -328,7 +329,7 @@ TEST(Modern, MoveSemanticsDeletedFunctionsAndSmartPointers) {
         }
         cout << a.use_count() << " ";
     )";
-    auto r = cppi_test::completes(program, cpp11);
+    auto r = cppi_test::completes(program, cpp14);  // make_unique
     EXPECT_EQ(r.result.output, "on empty 4 on 2 1 off off ");
     EXPECT_TRUE(r.result.diagnostics.empty());
 

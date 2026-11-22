@@ -176,6 +176,8 @@ private:
     BExprPtr subscript(const ast::SubscriptExpr& s, SourceRange range);
     /// `object.member` / `pointer->member`.
     BExprPtr member(const ast::MemberExpr& m, SourceRange range);
+    /// E0304 when `member` of the library class `type` is newer than the standard in use.
+    void check_library_member(TypeRef type, const std::string& member, SourceRange range);
     /// Member `name` of the record lvalue `object` (`want_methods`: a member
     /// function may be named, for a call).
     BExprPtr member_of(BExprPtr object, const std::string& name, SourceRange name_range, SourceRange range,

@@ -68,6 +68,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | E0301 | `feature-requires-standard` | `feature`, `required`, `current` | The feature belongs to a later standard. |
 | E0302 | `feature-not-implemented` | `feature` | Allowed, but this version of the interpreter cannot run it yet. |
 | E0303 | `unsupported-syntax` | `construct` | A construct that does not match any known feature. |
+| E0304 | `library-requires-standard` | `name`, `standard` | A library name (or a member of a library class, as `std::optional::and_then`) that a later standard introduced: `std::optional` at C++14. `name` includes `std::`; `standard` is the one that introduced it. |
 
 `feature` is a stable feature key:
 
@@ -139,4 +140,5 @@ Templates from `tools/cppi-run/EnglishCatalog.cpp` and `tools/cppi-run/SpanishCa
 |---|---|---|
 | `feature-locked` | Aún no desbloqueaste {feature} | You haven't unlocked {feature} yet |
 | `feature-requires-standard` | Para usar {feature} necesitas {required} (estás usando {current}) | Using {feature} requires {required} (you are using {current}) |
+| `library-requires-standard` | '{name}' es de {standard}; este programa se compila con un estándar anterior | '{name}' is from {standard}; this program is compiled as an earlier standard |
 | `unknown-function` | No existe ninguna función llamada '{name}' | There is no function called '{name}' |

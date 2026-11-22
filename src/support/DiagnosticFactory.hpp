@@ -135,6 +135,9 @@ public:
     [[nodiscard]] static Diagnostic feature_not_implemented(SourceRange range, Feature feature);
     /// DiagCode::UnsupportedSyntax (E0303); args: construct.
     [[nodiscard]] static Diagnostic unsupported_syntax(SourceRange range, const std::string& construct);
+    /// DiagCode::LibraryRequiresStandard (E0304); args: name, standard.
+    [[nodiscard]] static Diagnostic library_requires_standard(SourceRange range, const std::string& name,
+                                                              Standard standard);
 
     // --- 4xx runtime --------------------------------------------------------
     /// DiagCode::BudgetExhausted (E0400); args: budget.

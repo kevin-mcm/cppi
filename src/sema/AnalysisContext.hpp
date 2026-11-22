@@ -17,6 +17,7 @@
 #include "sema/ImplicitConversions.hpp"
 #include "sema/SymbolTable.hpp"
 #include "sema/TypeTable.hpp"
+#include "support/DiagnosticFactory.hpp"
 #include "support/DiagnosticSink.hpp"
 
 #include <cppi/HostRegistry.hpp>
@@ -25,6 +26,8 @@
 #include <deque>
 #include <memory>
 #include <set>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace cppi::sema {
@@ -83,6 +86,17 @@ public:
             d.range = implicit_site;
         }
         sink.report(std::move(d));
+    }
+
+    /// False, after reporting E0304, if `symbol` is a library name that a later
+    /// standard introduced and the player's code (not the prelude) uses it.
+    bool allow_library_name(const Symbol* symbol, SourceRange range, std::string_view name) {
+        if (symbol == nullptr || !symbol->since || library_depth > 0 || options.standard >= *symbol->since) {
+            return true;
+        }
+        report(
+            detail::DiagnosticFactory::library_requires_standard(range, "std::" + std::string(name), *symbol->since));
+        return false;
     }
 
     /// Cells in the current function's frame.

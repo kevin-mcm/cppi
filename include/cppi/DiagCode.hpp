@@ -72,6 +72,7 @@ enum class DiagCode : std::uint16_t {
     FeatureRequiresStandard = 301,  ///< args: feature, required, current
     FeatureNotImplemented = 302,    ///< args: feature
     UnsupportedSyntax = 303,        ///< args: construct
+    LibraryRequiresStandard = 304,  ///< args: name (`std::optional`), standard (that introduced it)
     // Runtime -----------------------------------------------------------
     BudgetExhausted = 400,        ///< args: budget
     HostError = 401,              ///< args: function, error (host-defined code), detail

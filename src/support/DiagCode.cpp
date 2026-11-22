@@ -62,6 +62,7 @@ std::string_view diag_key(DiagCode code) noexcept {
         case DiagCode::FeatureRequiresStandard: return "feature-requires-standard";
         case DiagCode::FeatureNotImplemented: return "feature-not-implemented";
         case DiagCode::UnsupportedSyntax: return "unsupported-syntax";
+        case DiagCode::LibraryRequiresStandard: return "library-requires-standard";
         case DiagCode::BudgetExhausted: return "budget-exhausted";
         case DiagCode::HostError: return "host-error";
         case DiagCode::StackOverflow: return "stack-overflow";

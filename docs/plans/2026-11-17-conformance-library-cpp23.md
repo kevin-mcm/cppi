@@ -481,6 +481,8 @@ No version bump, tag or release.
 
 ### Task C19: E0304 `library-requires-standard`
 
+**Done (2026-11-22):** the table is `src/library/LibraryStandards.{hpp,cpp}` (with a `ScopedEntry` seam for tests). After the prelude is bound, its `std::` symbols are stamped with `Symbol::since`; `AnalysisContext::allow_library_name` reports at type names, identifiers, calls, template calls and `std::` template instances; `ExpressionBinder::check_library_member` reports `class::member` entries. Concepts used in constraints are gated by their own E0301 feature, not by this table.
+
 **Problem:** `std::optional` compiles at C++11, `std::make_unique` at C++11, and so on. The game's levels promise a standard, so a name newer than it must not compile.
 
 **Files:** `include/cppi/DiagCode.hpp` (`LibraryRequiresStandard = 304`, args `name`, `standard`); a table of library names and their standards (`src/library/LibraryStandards.cpp`); the name-lookup step in `src/sema` that resolves `std::` names; `docs/diagnostics.md`; both cppi-run catalogs; `tests/unit/DiagnosticsTest.cpp`; `CHANGELOG.md` (Changed: programs that compiled before may not).

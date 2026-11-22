@@ -110,6 +110,7 @@ std::optional<ResolvedType> TypeResolver::resolve_spec(const ast::TypeSpec& spec
         symbol = ctx_.symbols.lookup(spec.name);
     }
     if (symbol != nullptr && symbol->kind == SymbolKind::Type) {
+        ctx_.allow_library_name(symbol, spec.range, spec.name);
         out.type = symbol->type;
         return out;
     }

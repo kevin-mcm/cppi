@@ -5,6 +5,7 @@
 /// @date 2026-10-08
 
 #include "sema/ExpressionBinder.hpp"
+#include "library/LibraryStandards.hpp"
 
 #include "sema/CaptureAnalysis.hpp"
 #include "sema/DeclarationBinder.hpp"
@@ -755,6 +756,7 @@ BExprPtr ExpressionBinder::identifier(const ast::Identifier& id, SourceRange ran
 BExprPtr ExpressionBinder::from_symbol(Symbol& found, const std::string& name, SourceRange range, Use use) {
     Symbol* symbol = &found;
     const ast::Identifier id{name, {}};
+    ctx_.allow_library_name(symbol, range, name);
     switch (symbol->kind) {
         case SymbolKind::Variable: return variable(*symbol, id.name, range);
         case SymbolKind::Constant: return constant(symbol->type, symbol->value, range);
@@ -996,6 +998,7 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         ctx_.report(DiagnosticFactory::unknown_function(c.callee_range, c.callee, suggestion));
         return nullptr;
     }
+    ctx_.allow_library_name(symbol, c.callee_range, c.callee);
     switch (symbol->kind) {
         case SymbolKind::Functions: {
             auto args = bind_args();
@@ -1113,6 +1116,7 @@ BExprPtr ExpressionBinder::method_call(const ast::CallExpr& c, const ast::Member
         return nullptr;
     }
     const std::uint32_t record = types.info(object->type).decl;
+    check_library_member(object->type, callee.member, callee.member_range);
     const MemberResult m = members_.find(record, callee.member);
     if (ctx_.templates->has_member_template(record, callee.member)) {
         std::vector<BExprPtr> args;
@@ -2087,10 +2091,25 @@ BExprPtr ExpressionBinder::member(const ast::MemberExpr& m, SourceRange range) {
     return member_of(std::move(base), m.member, m.member_range, range, false);
 }
 
+void ExpressionBinder::check_library_member(TypeRef type, const std::string& member, SourceRange range) {
+    if (ctx_.library_depth > 0 || ctx_.templates == nullptr || !ctx_.types.is_record(type)) {
+        return;
+    }
+    const std::string_view library_class = ctx_.templates->library_class_name(type);
+    if (library_class.empty()) {
+        return;
+    }
+    const std::string key = std::string(library_class) + "::" + member;
+    if (const auto since = library::standard_of(key); since && ctx_.options.standard < *since) {
+        ctx_.report(DiagnosticFactory::library_requires_standard(range, "std::" + key, *since));
+    }
+}
+
 BExprPtr ExpressionBinder::member_of(BExprPtr object, const std::string& name, SourceRange name_range,
                                      SourceRange range, bool want_methods) {
     TypeTable& types = ctx_.types;
     const std::uint32_t record = types.info(object->type).decl;
+    check_library_member(object->type, name, name_range);
     const MemberResult m = members_.find(record, name);
     switch (m.kind) {
         case MemberResult::Kind::None:

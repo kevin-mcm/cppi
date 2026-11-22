@@ -56,6 +56,8 @@ public:
     [[nodiscard]] std::vector<Callee> constructor_candidates(std::uint32_t record,
                                                              const std::vector<const BExpr*>& args, SourceRange range);
     /// Does `record` (or a base) have member function templates called `name`?
+    /// The name of the library class template `type` is an instance of ("optional"), or empty.
+    [[nodiscard]] std::string_view library_class_name(TypeRef type) const;
     [[nodiscard]] bool has_member_template(std::uint32_t record, std::string_view name) const;
     /// Instances of the function templates of `symbol` whose template arguments
     /// deduce from `args`: candidates next to its ordinary overloads, for a

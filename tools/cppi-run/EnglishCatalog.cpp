@@ -29,6 +29,7 @@ constexpr MessageEntry kDiagnostics[] = {
     {"feature-requires-standard", "using {feature} requires {required} (you are using {current})"},
     {"feature-not-implemented", "{feature}: not available in this version of the game yet"},
     {"unsupported-syntax", "this construct ({construct}) is not supported"},
+    {"library-requires-standard", "'{name}' is from {standard}; this program is compiled as an earlier standard"},
     {"budget-exhausted", "out of operations: the budget of {budget} was used up"},
     {"host-error", "'{function}' failed: {detail}"},
     {"redefinition", "'{name}' is already declared"},

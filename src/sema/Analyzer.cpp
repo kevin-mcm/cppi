@@ -6,6 +6,7 @@
 
 #include "sema/Analyzer.hpp"
 
+#include "library/LibraryStandards.hpp"
 #include "sema/AnalysisContext.hpp"
 #include "sema/DeclarationBinder.hpp"
 #include "sema/ExpressionBinder.hpp"
@@ -59,6 +60,14 @@ AnalysisResult Analyzer::analyze(const ast::TranslationUnit& unit, const ast::Tr
         const LibraryScope library(ctx, SourceRange{});
         for (const auto& statement : prelude->statements) {
             statements.bind(statement, out);
+        }
+        // Library names newer than C++98 remember their standard (E0304).
+        if (Scope* std_scope = ctx.symbols.find_namespace({"std"})) {
+            for (const std::string& name : library::names()) {
+                if (Symbol* symbol = std_scope->find(name)) {
+                    symbol->since = library::standard_of(name);
+                }
+            }
         }
     }
     for (const auto& statement : unit.statements) {

@@ -9,6 +9,7 @@
 #include "sema/TypeInfo.hpp"
 
 #include <cppi/SourceRange.hpp>
+#include <cppi/Standard.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -50,6 +51,8 @@ struct Symbol {
     SymbolKind kind = SymbolKind::Poisoned;
     /// Where it is declared.
     SourceRange range;
+    /// A library name: the standard that introduced it (E0304 below that).
+    std::optional<Standard> since;
 
     // Variable
     TypeRef type = 0;  ///< Variable: object type (referent for references); Constant/Type: the type
