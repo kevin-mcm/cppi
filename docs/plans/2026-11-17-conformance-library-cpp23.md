@@ -443,7 +443,7 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
   - sema maps `std::function<R(A...)>` to the prelude's `__function<R, A1, A2, A3>`, instead of the partial specialization planned below; the prelude stays C++;
   - the prelude has `__callable_base`/`__callable`, type erasure with `if constexpr` on the arity, and `bad_function_call`.
 - **Blocker:** `__function` converts from any callable through a constructor template, `template <class F> __function(F f)`. cppi rejects constructor templates: `convert_method_template` refuses constructors, and construction and implicit conversions only consider ordinary constructors.
-- **Next:** a task C16c, constructor templates:
+- **C16c done (2026-11-22):** constructor templates work (parser, `InitializerBinder::construct`/`construct_base`, `new`, implicit conversions). **Next:** rebase the WIP branch and finish C17's tests. (What C16c covered:)
   - in the parser;
   - as construction candidates (`InitializerBinder::construct`);
   - in implicit conversions, so `v.push_back(lambda)` converts.

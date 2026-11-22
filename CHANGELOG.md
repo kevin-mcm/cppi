@@ -5,6 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Constructor templates: `template <class T> Wrapper(T x)`, deduced from the arguments in direct initialization, `new`, base initializers and implicit conversions (`Wrapper w = 5;`, `push_back(9)`); an ordinary constructor wins a tie. They gave E0303 `unsupported-syntax`.
 - Function pointers:
   - `int (*f)(int) = twice;`, `&twice`, `auto g = twice;`;
   - calls through them (`f(3)`, `(*f)(3)`), comparisons with each other and with `nullptr`;

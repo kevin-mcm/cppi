@@ -653,7 +653,7 @@ std::optional<ast::MethodTemplate> TreeConverter::convert_method_template(TSNode
         return std::nullopt;
     }
     auto fn = convert_function_decl(inner, declarator);
-    if (!fn || fn->is_constructor || fn->is_destructor || fn->is_virtual) {
+    if (!fn || fn->is_destructor || fn->is_virtual) {
         return std::nullopt;
     }
     ast::MethodTemplate t;

@@ -846,7 +846,7 @@ std::optional<std::uint32_t> DeclarationBinder::instantiate_method(std::uint32_t
                                                                    const std::function<void(std::uint32_t)>& registered,
                                                                    const GenericLambda* lambda) {
     generic_autos_ = lambda != nullptr ? lambda->autos : nullptr;
-    auto sig = resolve_signature(decl, false, lambda != nullptr && lambda->deduce_return);
+    auto sig = resolve_signature(decl, decl.is_constructor, lambda != nullptr && lambda->deduce_return);
     generic_autos_ = nullptr;
     if (!sig) {
         return std::nullopt;
@@ -861,6 +861,8 @@ std::optional<std::uint32_t> DeclarationBinder::instantiate_method(std::uint32_t
     info.record = record;
     info.is_const = lambda != nullptr ? lambda->is_const : decl.is_const;
     info.is_static = decl.is_static;
+    info.is_constructor = decl.is_constructor;
+    info.is_explicit = decl.is_explicit;
     info.access = decl.access;
     info.is_constexpr = decl.return_type.is_constexpr;
     info.is_consteval = decl.return_type.is_consteval;

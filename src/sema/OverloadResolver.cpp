@@ -9,6 +9,7 @@
 #include "sema/ExpressionBinder.hpp"
 #include "sema/InitializerBinder.hpp"
 #include "sema/Intrinsics.hpp"
+#include "sema/TemplateEngine.hpp"
 #include "support/DiagnosticFactory.hpp"
 
 #include "ast/Expr.hpp"
@@ -110,7 +111,7 @@ bool OverloadResolver::converts_by_constructor(const BExpr& arg, TypeRef record)
     if (!types.is_record(record) || arg.type == record || types.is_void(arg.type)) {
         return false;
     }
-    return std::ranges::any_of(types.record(record).constructors, [&](std::uint32_t id) {
+    const auto converts = [&](std::uint32_t id) {
         const FunctionInfo& fn = ctx_.functions[id];
         if (fn.params.empty() || fn.access != ast::Access::Public) {
             return false;
@@ -126,7 +127,20 @@ bool OverloadResolver::converts_by_constructor(const BExpr& arg, TypeRef record)
             return false;
         }
         return rank(arg, p) != ConversionRank::None;
-    });
+    };
+    if (std::ranges::any_of(types.record(record).constructors, converts)) {
+        return true;
+    }
+    // A constructor template: its instance for this argument, tried without reporting.
+    ctx_.sink.mute();
+    const std::size_t errors_before = ctx_.sink.dropped_errors();
+    const std::vector<const BExpr*> args{&arg};
+    const auto instances = ctx_.templates->constructor_candidates(types.info(record).decl, args, arg.range);
+    const bool clean = ctx_.sink.dropped_errors() == errors_before;
+    ctx_.sink.unmute();
+    return clean && std::ranges::any_of(instances, [&](const Callee& c) {
+               return !ctx_.functions[c.id].is_explicit && converts(c.id);
+           });
 }
 
 ConversionRank OverloadResolver::braced_rank(const ast::InitList& list, TypeRef param) const {

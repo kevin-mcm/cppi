@@ -42,11 +42,19 @@ public:
                                 std::vector<Scope*> home, bool is_const, bool deduce_return);
     /// Registers a member function template of `record`.
     void declare_member(std::uint32_t record, const ast::MethodTemplate& method);
+    /// Key of a record's constructor templates in `RecordInfo::method_templates`.
+    static constexpr std::string_view kConstructorKey = "<constructor>";
     /// Instances of the member function templates `name` of `record` (or of
     /// its closest base that has them) that can take `args`.
     [[nodiscard]] std::vector<Callee> member_candidates(std::uint32_t record, const std::string& name,
                                                         const std::vector<ast::TypeDesc>& explicit_descs,
                                                         const std::vector<BExprPtr>& args, SourceRange range);
+    /// Instances of the constructor templates of `record` that can take `args`
+    /// (candidates next to its ordinary constructors). Not for copying the class itself.
+    [[nodiscard]] std::vector<Callee> constructor_candidates(std::uint32_t record, const std::vector<BExprPtr>& args,
+                                                             SourceRange range);
+    [[nodiscard]] std::vector<Callee> constructor_candidates(std::uint32_t record,
+                                                             const std::vector<const BExpr*>& args, SourceRange range);
     /// Does `record` (or a base) have member function templates called `name`?
     [[nodiscard]] bool has_member_template(std::uint32_t record, std::string_view name) const;
     /// Instances of the function templates of `symbol` whose template arguments

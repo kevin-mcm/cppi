@@ -630,3 +630,46 @@ TEST(Language, FunctionPointers) {
     EXPECT_EQ(compile_error("int twice(int x) { return 2 * x; }\ndouble (*q)(double) = twice;\n"),
               DiagCode::CannotConvert);
 }
+
+TEST(Language, ConstructorTemplates) {
+    // A constructor can be a template: deduced from the arguments, used by direct
+    // initialization, implicit conversions, a class template's members and
+    // push_back. An ordinary constructor beats a template on a tie.
+    EXPECT_EQ(printed(R"(
+        struct Wrapper {
+            int v;
+            template <class T> Wrapper(T x) : v(x + 1) {}
+        };
+        struct Pt {
+            int x;
+            Pt(int a) : x(a) {}
+            template <class T> Pt(T a, T b) : x(a * 10 + b) {}
+        };
+        struct Call {
+            int r;
+            template <class F> Call(F f) : r(f(2)) {}
+        };
+        template <class T> struct Box {
+            T val;
+            template <class U> Box(U u) : val(u) {}
+        };
+        int show(Wrapper w) { return w.v; }
+        Wrapper w(3);
+        Wrapper w2 = 5;
+        Wrapper c = w;
+        std::cout << w.v << w2.v << c.v << show(7) << " ";
+        Pt p(1, 2);
+        Pt q(7);
+        std::cout << p.x << q.x << " ";
+        Call k([](int x) { return x * 5; });
+        std::cout << k.r << " ";
+        Box<double> b(3);
+        std::cout << b.val << " ";
+        std::vector<Wrapper> vs;
+        vs.push_back(9);
+        vs.push_back(Wrapper(1));
+        std::cout << vs[0].v << vs[1].v;
+    )",
+                      standard(Standard::Cpp14)),
+              "4648 127 10 3 102");
+}

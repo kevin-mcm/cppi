@@ -2277,6 +2277,9 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
             for (const std::uint32_t id : info.constructors) {
                 ctors.push_back(Callee{false, id});
             }
+            for (const Callee& c : ctx_.templates->constructor_candidates(types.info(type).decl, args, range)) {
+                ctors.push_back(c);
+            }
             if (n.array_size) {
                 if (!args.empty()) {
                     ctx_.report(DiagnosticFactory::unsupported_syntax(range, "array new with initializers"));

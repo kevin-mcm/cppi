@@ -579,6 +579,9 @@ bool InitializerBinder::construct(BExprPtr target, TypeRef type, std::vector<BEx
     for (const std::uint32_t id : info.constructors) {
         ctors.push_back(Callee{false, id});
     }
+    for (const Callee& c : ctx_.templates->constructor_candidates(record, args, range)) {
+        ctors.push_back(c);
+    }
     if (args.empty()) {
         bool has_default = false;
         for (const std::uint32_t id : info.constructors) {
@@ -961,6 +964,9 @@ bool InitializerBinder::construct_base(BExprPtr target, std::uint32_t base_recor
     ctors.reserve(info.constructors.size());
     for (const std::uint32_t id : info.constructors) {
         ctors.push_back(Callee{false, id});
+    }
+    for (const Callee& c : ctx_.templates->constructor_candidates(base_record, args, range)) {
+        ctors.push_back(c);
     }
     if (ctors.empty()) {
         ctx_.report(DiagnosticFactory::no_matching_function(range, info.name, ctx_.overloads->describe(args)));

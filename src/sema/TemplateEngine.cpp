@@ -569,7 +569,44 @@ void TemplateEngine::declare_member(std::uint32_t record, const ast::MethodTempl
     info.library = ctx_.library_depth > 0;
     templates_.push_back(std::move(info));
     const auto id = static_cast<std::uint32_t>(templates_.size() - 1);
-    ctx_.types.record_at(record).method_templates[templates_.back().name].push_back(id);
+    // Constructor templates share one key, whatever the class (instances are named after it).
+    const std::string key = method.decl.is_constructor ? std::string(kConstructorKey) : templates_.back().name;
+    ctx_.types.record_at(record).method_templates[key].push_back(id);
+    if (method.decl.is_constructor) {
+        ctx_.types.record_at(record).user_constructors = true;
+    }
+}
+
+std::vector<Callee> TemplateEngine::constructor_candidates(std::uint32_t record, const std::vector<BExprPtr>& args,
+                                                           SourceRange range) {
+    return constructor_candidates(record, pointers(args), range);
+}
+
+std::vector<Callee> TemplateEngine::constructor_candidates(std::uint32_t record, const std::vector<const BExpr*>& args,
+                                                           SourceRange range) {
+    std::vector<Callee> out;
+    const RecordInfo& info = ctx_.types.record_at(record);
+    const auto it = info.method_templates.find(kConstructorKey);
+    if (it == info.method_templates.end()) {
+        return out;
+    }
+    if (args.size() == 1 && ctx_.types.is_record(args.front()->type) &&
+        (args.front()->type == ctx_.types.record_type(record) ||
+         ctx_.hierarchy.find_base(ctx_.types.info(args.front()->type).decl, record).has_value())) {
+        return out;  // copying: the class's own copy constructor
+    }
+    const std::vector<std::uint32_t> candidates = it->second;  // copy: instantiating may add templates
+    for (const std::uint32_t id : candidates) {
+        auto type_args = deduce_all(templates_[id], *templates_[id].method, {}, args);
+        if (!type_args || unsatisfied(templates_[id], *type_args, range)) {
+            continue;
+        }
+        if (auto fid = instantiate_method(id, *type_args, range)) {
+            ctx_.functions[*fid].template_id = id;  // an ordinary constructor beats it on a tie
+            out.push_back(Callee{false, *fid});
+        }
+    }
+    return out;
 }
 
 const std::vector<std::uint32_t>* TemplateEngine::member_templates(std::uint32_t record, std::string_view name) const {
