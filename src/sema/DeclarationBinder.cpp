@@ -467,13 +467,18 @@ bool DeclarationBinder::bind_structured(const Symbol& whole, const ast::VarDecla
             parts.push_back(std::move(e));
         }
     } else if (types.is_record(type) && types.record(type).bases.empty()) {
-        const RecordInfo& info = types.record(type);
-        if (info.fields.size() != names.size()) {
-            ctx_.report(
-                DiagnosticFactory::too_many_initializers(var.declarator.range, info.fields.size(), names.size()));
+        // A std::tuple's unused elements (__tuple_none) are not bound.
+        std::vector<FieldInfo> fields;
+        for (const FieldInfo& f : types.record(type).fields) {
+            if (!(types.is_record(f.type) && types.record(f.type).name == "__tuple_none")) {
+                fields.push_back(f);
+            }
+        }
+        if (fields.size() != names.size()) {
+            ctx_.report(DiagnosticFactory::too_many_initializers(var.declarator.range, fields.size(), names.size()));
             return false;
         }
-        for (const FieldInfo& f : info.fields) {
+        for (const FieldInfo& f : fields) {
             BMember m;
             m.base = object();
             m.offset = f.offset;

@@ -1294,3 +1294,26 @@ TEST(Modern, StdArray) {
     EXPECT_EQ(d.code, DiagCode::OutOfBounds);
     EXPECT_EQ(d.range.begin.line, 2);
 }
+
+TEST(Modern, StdTuple) {
+    // std::tuple of up to four elements: get<I>, make_tuple, structured
+    // bindings, std::tie from a pair, and comparisons.
+    EXPECT_EQ(printed(R"(#include <tuple>
+        std::tuple<int, char, bool> t(7, 'x', true);
+        std::cout << std::get<0>(t) << std::get<1>(t) << std::get<2>(t) << " ";
+        std::get<0>(t) = 8;
+        auto u = std::make_tuple(1, 2.5, 'c');
+        std::cout << std::get<0>(t) << std::get<0>(u) << std::get<2>(u) << " ";
+        auto [a, b, c] = t;
+        std::cout << a << b << c << " ";
+        int x = 0;
+        int y = 0;
+        std::tie(x, y) = std::make_pair(3, 4);
+        std::cout << x << y << " ";
+        std::tuple<int, int> p(1, 2);
+        std::tuple<int, int> q(1, 3);
+        std::cout << (p < q) << (p == q) << (p != q) << (q > p) << (p == std::make_tuple(1, 2));
+    )",
+                      cpp17),
+              "7x1 81c 8x1 34 10111");
+}

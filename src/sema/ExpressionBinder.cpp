@@ -355,6 +355,42 @@ BExprPtr ExpressionBinder::this_pointer(SourceRange range) {
     return make(pointer, false, range, BLoad{std::move(var)});
 }
 
+BExprPtr ExpressionBinder::tuple_get(const ast::CallExpr& c, std::vector<BExprPtr>& args, SourceRange range) {
+    // `std::get<I>(t)` on a std::tuple or std::pair: element I, whose type depends
+    // on I (the prelude cannot say that without partial specialization).
+    const TypeTable& types = ctx_.types;
+    const bool std_scope = c.scope.empty() || (c.scope.size() == 1 && c.scope.front() == "std");
+    if (c.callee != "get" || !std_scope || c.template_args.size() != 1 || args.size() != 1 ||
+        !types.is_record(args.front()->type) || ctx_.templates == nullptr) {
+        return nullptr;
+    }
+    const auto origin = ctx_.templates->origin(args.front()->type);
+    const bool tuple = origin && ctx_.templates->is_library_template(origin->first, "tuple");
+    const bool pair = origin && ctx_.templates->is_library_template(origin->first, "pair");
+    if (!tuple && !pair) {
+        return nullptr;
+    }
+    const ast::TypeDesc& desc = c.template_args.front();
+    std::optional<std::int64_t> index;
+    if (desc.value) {
+        if (auto bound = bind(*desc.value)) {
+            index = ctx_.constants.integer(*bound);
+        }
+    } else if (const Symbol* s = ctx_.symbols.lookup(desc.spec.name); s != nullptr) {
+        index = s->kind == SymbolKind::Constant ? std::optional(s->value) : s->constant;
+    }
+    const auto& fields = types.record(args.front()->type).fields;
+    const auto count = static_cast<std::int64_t>(std::count_if(fields.begin(), fields.end(), [&](const FieldInfo& f) {
+        return !(types.is_record(f.type) && types.record(f.type).name == "__tuple_none");
+    }));
+    if (!index || *index < 0 || *index >= count) {
+        ctx_.report(DiagnosticFactory::not_constant(desc.spec.range));
+        return nullptr;
+    }
+    const std::string name = pair ? (*index == 0 ? "first" : "second") : "__" + std::to_string(*index);
+    return member_of(std::move(args.front()), name, range, range, false);
+}
+
 BExprPtr ExpressionBinder::captured_this(SourceRange range) {
     // Inside a lambda's operator(): the closure's __this (the object it captured
     // with [this]), or the address of its __self (the copy made by [*this]).
@@ -756,6 +792,9 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         auto args = bind_args();
         if (!args) {
             return nullptr;
+        }
+        if (auto element = tuple_get(c, *args, range)) {
+            return element;
         }
         return ctx_.templates->call(c, std::move(*args), range);
     }

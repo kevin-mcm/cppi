@@ -880,6 +880,119 @@ constexpr std::string_view kSource = R"cpp(
         }
     };
 
+    // --- std::tuple (C++11): up to four elements -------------------------------------------
+    // Unused elements are __tuple_none. std::get<I>(t) and structured bindings
+    // are handled by the compiler (the type of get<I> depends on I).
+    struct __tuple_none {};
+    bool operator==(const __tuple_none&, const __tuple_none&) {
+        return true;
+    }
+    bool operator<(const __tuple_none&, const __tuple_none&) {
+        return false;
+    }
+
+    template <class A, class B = __tuple_none, class C = __tuple_none, class D = __tuple_none>
+    struct tuple {
+        A __0;
+        B __1;
+        C __2;
+        D __3;
+        tuple() : __0(), __1(), __2(), __3() {}
+        tuple(const A& a) : __0(a), __1(), __2(), __3() {}
+        tuple(const A& a, const B& b) : __0(a), __1(b), __2(), __3() {}
+        tuple(const A& a, const B& b, const C& c) : __0(a), __1(b), __2(c), __3() {}
+        tuple(const A& a, const B& b, const C& c, const D& d) : __0(a), __1(b), __2(c), __3(d) {}
+    };
+    template <class A>
+    tuple<A> make_tuple(A a) {
+        return tuple<A>(a);
+    }
+    template <class A, class B>
+    tuple<A, B> make_tuple(A a, B b) {
+        return tuple<A, B>(a, b);
+    }
+    template <class A, class B, class C>
+    tuple<A, B, C> make_tuple(A a, B b, C c) {
+        return tuple<A, B, C>(a, b, c);
+    }
+    template <class A, class B, class C, class D>
+    tuple<A, B, C, D> make_tuple(A a, B b, C c, D d) {
+        return tuple<A, B, C, D>(a, b, c, d);
+    }
+    template <class A, class B, class C, class D>
+    bool operator==(const tuple<A, B, C, D>& x, const tuple<A, B, C, D>& y) {
+        return x.__0 == y.__0 && x.__1 == y.__1 && x.__2 == y.__2 && x.__3 == y.__3;
+    }
+    template <class A, class B, class C, class D>
+    bool operator!=(const tuple<A, B, C, D>& x, const tuple<A, B, C, D>& y) {
+        return !(x == y);
+    }
+    template <class A, class B, class C, class D>
+    bool operator<(const tuple<A, B, C, D>& x, const tuple<A, B, C, D>& y) {
+        if (x.__0 < y.__0) return true;
+        if (y.__0 < x.__0) return false;
+        if (x.__1 < y.__1) return true;
+        if (y.__1 < x.__1) return false;
+        if (x.__2 < y.__2) return true;
+        if (y.__2 < x.__2) return false;
+        return x.__3 < y.__3;
+    }
+    template <class A, class B, class C, class D>
+    bool operator>(const tuple<A, B, C, D>& x, const tuple<A, B, C, D>& y) {
+        return y < x;
+    }
+    template <class A, class B, class C, class D>
+    bool operator<=(const tuple<A, B, C, D>& x, const tuple<A, B, C, D>& y) {
+        return !(y < x);
+    }
+    template <class A, class B, class C, class D>
+    bool operator>=(const tuple<A, B, C, D>& x, const tuple<A, B, C, D>& y) {
+        return !(x < y);
+    }
+    // std::tie(a, b) = ...: the variables' addresses, assigned element by element.
+    template <class A, class B>
+    struct __tie2 {
+        A* __0;
+        B* __1;
+        __tie2& operator=(const pair<A, B>& p) {
+            *__0 = p.first;
+            *__1 = p.second;
+            return *this;
+        }
+        __tie2& operator=(const tuple<A, B>& t) {
+            *__0 = t.__0;
+            *__1 = t.__1;
+            return *this;
+        }
+    };
+    template <class A, class B, class C>
+    struct __tie3 {
+        A* __0;
+        B* __1;
+        C* __2;
+        __tie3& operator=(const tuple<A, B, C>& t) {
+            *__0 = t.__0;
+            *__1 = t.__1;
+            *__2 = t.__2;
+            return *this;
+        }
+    };
+    template <class A, class B>
+    __tie2<A, B> tie(A& a, B& b) {
+        __tie2<A, B> t;
+        t.__0 = &a;
+        t.__1 = &b;
+        return t;
+    }
+    template <class A, class B, class C>
+    __tie3<A, B, C> tie(A& a, B& b, C& c) {
+        __tie3<A, B, C> t;
+        t.__0 = &a;
+        t.__1 = &b;
+        t.__2 = &c;
+        return t;
+    }
+
     // --- Container adaptors: std::queue, std::stack, std::priority_queue -----------------
     // front, back, top and pop on an empty adaptor are undefined in real C++;
     // here they stop with E0503 out-of-bounds, as vector::back does.
