@@ -276,6 +276,13 @@ No version bump, tag or release. The changelog lines stay under `## [Unreleased]
 - [ ] **Step 2: Implement; run all tests.**
 - [ ] **Step 3: Commit** `feat: braced lists and std::initializer_list`.
 
+**Done (2026-11-22):**
+- **Prelude:** `initializer_list<T>` holds `__first`/`__size`, which sema fills. Sema puts the elements in a temporary array and registers it for destruction.
+- **Expressions:** a braced list used as an expression is a placeholder (`BExpr::braced`). `OverloadResolver::braced_rank` ranks it: `initializer_list<E>` is Exact, a class is UserDefined, a scalar takes at most 1 element, and it never binds `T&`. `prepare` turns it into a `list_temporary` of the parameter's type. `to_rvalue` rejects it anywhere else.
+- **Range-for:** `for (x : {...})` deduces `E` from the elements, binding them in a muted trial.
+- **Also fixed:** a range-for never destroyed its range's temporaries (a returned vector leaked).
+- **Not done:** `auto x = {1, 2};` (deducing `std::initializer_list` from `auto`) is not supported; it reports an error. Assigning a braced list to a scalar (`int x; x = {5};`) is not supported either.
+
 ### Task C10: direct-list-initialization `T{...}`
 
 Today `Order{5, 2}` gives E0303 `unsupported-syntax`.
