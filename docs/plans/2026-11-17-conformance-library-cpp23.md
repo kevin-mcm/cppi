@@ -392,6 +392,13 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
   - Tests: a user template `template <int N> int twice() { return 2 * N; }`; `N` used as an array size; two instantiations that differ only in `N` are distinct types.
 - [ ] **Implement `std::array`** (an aggregate with a `T elems[N]` member), **run, commit** `feat(library): std::array`.
 
+**Done (2026-11-22):**
+- **Values as types:** a non-type argument is a `TypeKind::TemplateValue` type (its value in `count`/`decl`). Instances stay keyed by `vector<TypeRef>`, and deduction (`Buf<int, N>`) works unchanged. `in_template_scope` binds `N` as a Constant.
+- **Parser:** expression arguments go into `TypeDesc::value`. A plain name (`N`, `K`) is read from its symbol.
+- **Scanner:** it no longer flags `template <X N>` as a concept. `collect_constraints` checks the concepts' standard instead.
+- **`std::array`:** an aggregate with `T __elems[N]`, plus brace elision for an aggregate whose only member is an array.
+- **Not done:** defaults for non-type parameters (`template <int N = 3>`), and deducing `N` from a built-in array parameter (`int (&a)[N]`).
+
 ### Task C16: `std::tuple`
 
 - [ ] **Tests:**
