@@ -468,6 +468,8 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
 
 ### Task C18: Phase 2 checkpoint
 
+**Done (2026-11-22):** Debug (gcc): 212 tests pass; Release: 212 pass; clang 18 with `linux-clang` and `CPPI_SANITIZERS=address;undefined`: 212 pass, no reports; `conan create . -s compiler.cppstd=20`: `test_package` runs ("harvested 2 in 12 operations"); `clang-format-18` clean; level benchmarks: operations 9222 / 150188 / 6012, identical to 0.3.1.
+
 No version bump, tag or release.
 - [ ] `docs/roadmap.md` lists Phase 2's syntax and library names.
 - [ ] Full verification as listed in C22.
