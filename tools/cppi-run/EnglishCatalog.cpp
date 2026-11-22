@@ -63,6 +63,7 @@ constexpr MessageEntry kDiagnostics[] = {
     {"deleted-function", "'{function}' is deleted: it cannot be used"},
     {"no-operator", "there is no operator{op} for '{type}'"},
     {"instantiated-from", "in '{function}', used here"},
+    {"narrowing", "converting '{from}' to '{to}' inside braces may lose information (narrowing)"},
     {"constraints-not-satisfied", "the arguments do not satisfy the constraints of '{function}'[: {constraint}]"},
     {"stack-overflow", "stack overflow: more than {depth} nested calls"},
     {"out-of-memory", "out of memory"},

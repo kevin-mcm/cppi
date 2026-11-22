@@ -54,6 +54,11 @@ public:
     /// no default member initializer, no virtual base to set up.
     [[nodiscard]] bool trivial_default_initialization(TypeRef type) const;
 
+    /// [dcl.init.list]: converting `from` to `to` inside braces narrows (C++11):
+    /// floating to integer always, between integer types or from an integer to
+    /// a floating type unless `from` is a constant that fits.
+    [[nodiscard]] bool narrowing(const BExpr& from, TypeRef to) const;
+
     /// E if `type` is the standard library's std::initializer_list<E>.
     [[nodiscard]] std::optional<TypeRef> initializer_list_element(TypeRef type) const;
     /// The std::initializer_list<E> type taken by an initializer-list
@@ -84,6 +89,8 @@ public:
     void destroy_members(std::uint32_t record, std::vector<BStmt>& out);
 
 private:
+    /// One element of a braced list into a scalar `type` (narrowing is an error, C++11).
+    bool initialize_element(BExprPtr target, TypeRef type, const ast::Expr& item, std::vector<BStmt>& out);
     /// `type` is std::initializer_list<element_type>: the elements go into a
     /// temporary array and `target` points at it.
     bool initialize_initializer_list(BExprPtr target, TypeRef type, TypeRef element_type, const ast::InitList& list,

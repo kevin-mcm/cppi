@@ -1075,3 +1075,38 @@ TEST(Modern, ARangeForDestroysItsRangeTemporariesAfterTheLoop) {
                       cpp11),
               "22 20 50");
 }
+
+TEST(Modern, DirectListInitialization) {
+    // `T{...}`: an aggregate, a constructor call, a scalar, a library class.
+    EXPECT_EQ(printed(R"(
+        struct Order { int x; int y; };
+        struct Point { int a; int b; Point(int x, int y) : a(x * 10), b(y) {} };
+        int sum(Order o) { return o.x + o.y; }
+        Order o = Order{5, 2};
+        std::cout << o.x << o.y << sum(Order{3, 4}) << " ";
+        auto p = Point{1, 2};
+        std::cout << p.a << p.b << Point{3, 4}.a << " ";
+        std::cout << int{3} << int{} << char{65} << " ";
+        std::cout << std::vector<int>{1, 2, 3}.size() << Order{}.y;
+    )",
+                      cpp11),
+              "527 10230 30A 30");
+    EXPECT_EQ(compile_error("struct Order { int x; };\nOrder o = Order{1};\n", standard(Standard::Cpp98)),
+              DiagCode::FeatureRequiresStandard);
+}
+
+TEST(Modern, NarrowingInsideBracesIsAnError) {
+    // C++11 forbids conversions that may lose information inside braces.
+    for (const char* source : {"int i = int{2.5};\n", "int a[] = {2.5};\n", "char c{300};\n",
+                               "double d = 1;\nint i{d};\n", "std::vector<int> v = {1.5};\n"}) {
+        auto r = run(source, cpp11);
+        ASSERT_FALSE(r.compiled.ok()) << source;
+        EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::Narrowing) << source;
+    }
+    auto d = run("int i = int{2.5};\n", cpp11).compiled.diagnostics[0];
+    EXPECT_EQ(d.arg_text("from"), "double");
+    EXPECT_EQ(d.arg_text("to"), "int");
+    // A constant that fits is fine, and C++98 allows the conversion.
+    EXPECT_EQ(printed("char c{65};\nlong l{2};\ndouble x{3};\nstd::cout << c << l << x;\n", cpp11), "A23");
+    EXPECT_EQ(printed("int a[] = {2.5};\nstd::cout << a[0];\n", standard(Standard::Cpp98)), "2");
+}

@@ -57,6 +57,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | E0238 | `constraints-not-satisfied` | `function`, `[constraint]` | The template arguments do not satisfy a concept (`Number<std::string>`) or a `requires` clause (`constraint` = `requires-clause`). |
 | E0239 | `no-operator` | `op`, `type` | An operator is used on a class that has none for those operands (`a < b` with `struct P { int x; };`, or `std::sort` of a `std::vector<P>` without a comparator). `op` is `<`, `==`..., `type` the class. Inside the standard library it is reported at the player's call, followed by E0240. |
 | E0240 | `instantiated-from` | `function` | *Note* after an error inside the standard library: the library function (`std::sort<pair<int, int>>`) the player's code at this location used. |
+| E0241 | `narrowing` | `from`, `to` | A conversion inside braces that may lose information, which C++11 forbids: `int{2.5}`, `int a[] = {2.5};`, `std::vector<int> v = {1.5};`. From a floating type to an integer always, and between integer types or to a floating type unless the value is a constant that fits. Not before C++11. |
 
 ## 3xx · Language features
 

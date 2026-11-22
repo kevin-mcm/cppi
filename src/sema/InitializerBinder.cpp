@@ -145,6 +145,85 @@ bool InitializerBinder::initialize_from(BExprPtr target, TypeRef type, BExprPtr 
     return true;
 }
 
+namespace {
+
+/// Width in bits and signedness of an integer kind (bool is one unsigned bit).
+std::optional<std::pair<int, bool>> integer_shape(TypeKind kind) {
+    switch (kind) {
+        case TypeKind::Bool: return std::pair{1, false};
+        case TypeKind::Char: return std::pair{8, true};
+        case TypeKind::UChar: return std::pair{8, false};
+        case TypeKind::Short: return std::pair{16, true};
+        case TypeKind::UShort: return std::pair{16, false};
+        case TypeKind::Int: return std::pair{32, true};
+        case TypeKind::UInt: return std::pair{32, false};
+        case TypeKind::Long: return std::pair{64, true};
+        case TypeKind::ULong: return std::pair{64, false};
+        default: return std::nullopt;
+    }
+}
+
+}  // namespace
+
+bool InitializerBinder::narrowing(const BExpr& from, TypeRef to) const {
+    const TypeTable& types = ctx_.types;
+    if (!ctx_.features.standard_allows(Feature::InitializerLists)) {
+        return false;  // C++98 allows it
+    }
+    const TypeKind source = types.kind(from.type);
+    const TypeKind target = types.kind(to);
+    const bool source_floating = source == TypeKind::Double;
+    const bool target_floating = target == TypeKind::Double;
+    const auto* constant = std::get_if<BConst>(&from.node);
+    if (source_floating) {
+        return !target_floating && integer_shape(target).has_value();  // double -> float: one kind here
+    }
+    const auto from_shape = integer_shape(source);
+    if (!from_shape) {
+        return false;  // enums, pointers, classes: not arithmetic narrowing
+    }
+    if (target_floating) {
+        return constant == nullptr;  // an integer constant is assumed to fit a double
+    }
+    const auto to_shape = integer_shape(target);
+    if (!to_shape) {
+        return false;
+    }
+    const auto [from_bits, from_signed] = *from_shape;
+    const auto [to_bits, to_signed] = *to_shape;
+    const bool always_fits =
+        (to_bits > from_bits && (to_signed || !from_signed)) || (to_bits == from_bits && to_signed == from_signed);
+    if (always_fits) {
+        return false;
+    }
+    if (constant == nullptr) {
+        return true;
+    }
+    const std::int64_t value = constant->bits;
+    if (to_bits >= 64) {
+        return to_signed ? (!from_signed && value < 0) : value < 0;
+    }
+    const std::int64_t low = to_signed ? -(std::int64_t{1} << (to_bits - 1)) : 0;
+    const std::int64_t high = to_signed ? (std::int64_t{1} << (to_bits - 1)) - 1 : (std::int64_t{1} << to_bits) - 1;
+    return value < low || value > high;
+}
+
+bool InitializerBinder::initialize_element(BExprPtr target, TypeRef type, const ast::Expr& item,
+                                           std::vector<BStmt>& out) {
+    if (!ctx_.types.is_scalar(type) || !ctx_.features.standard_allows(Feature::InitializerLists)) {
+        return initialize_expr(std::move(target), type, item, out);
+    }
+    auto value = ctx_.expressions->bind_rvalue(item);
+    if (!value) {
+        return false;
+    }
+    if (narrowing(*value, type)) {
+        ctx_.report(DiagnosticFactory::narrowing(item.range, ctx_.types.name(value->type), ctx_.types.name(type)));
+        return false;
+    }
+    return initialize_from(std::move(target), type, std::move(value), out);
+}
+
 std::optional<TypeRef> InitializerBinder::initializer_list_element(TypeRef type) const {
     if (!ctx_.types.is_record(type) || ctx_.templates == nullptr) {
         return std::nullopt;
@@ -239,7 +318,7 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             ctx_.report(DiagnosticFactory::too_many_initializers(range, 1, items.size()));
             return false;
         }
-        return initialize_expr(std::move(target), type, items.front(), out);
+        return initialize_element(std::move(target), type, items.front(), out);
     }
 
     if (types.is_array(type)) {
@@ -266,7 +345,7 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             if (const auto* sub = std::get_if<ast::InitList>(&item.node)) {
                 ok = initialize_list(std::move(slot), elem, *sub, item.range, out);
             } else {
-                ok = initialize_expr(std::move(slot), elem, item, out);
+                ok = initialize_element(std::move(slot), elem, item, out);
             }
             if (!ok) {
                 return false;
@@ -324,7 +403,7 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
                 if (const auto* sub = std::get_if<ast::InitList>(&item.node)) {
                     ok = initialize_list(std::move(slot), field.type, *sub, item.range, out);
                 } else {
-                    ok = initialize_expr(std::move(slot), field.type, item, out);
+                    ok = initialize_element(std::move(slot), field.type, item, out);
                 }
             } else if (field.default_init != nullptr) {
                 ok = initialize(std::move(slot), field.type, *field.default_init, false, out);

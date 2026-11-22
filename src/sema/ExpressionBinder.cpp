@@ -1873,6 +1873,33 @@ BExprPtr ExpressionBinder::cast(const ast::CastExpr& c, SourceRange range) {
         ctx_.report(DiagnosticFactory::unsupported_type(range, "auto"));
         return nullptr;
     }
+    if (c.kind == ast::CastKind::List) {
+        // `Order{5, 2}`, `Point{1, 2}`, `int{3}`: direct-list-initialization (C++11).
+        const auto* list = std::get_if<ast::InitList>(&c.operand->node);
+        if (list == nullptr || !ctx_.features.allow(Feature::InitializerLists, range)) {
+            return nullptr;
+        }
+        if (!types.is_scalar(target->type)) {
+            return list_temporary(target->type, *list, range);
+        }
+        if (list->elements.size() > 1) {
+            ctx_.report(DiagnosticFactory::too_many_initializers(range, 1, list->elements.size()));
+            return nullptr;
+        }
+        if (list->elements.empty()) {
+            return constant(target->type, 0, range);  // `int{}` value-initializes
+        }
+        auto value = bind_rvalue(list->elements.front());
+        if (!value) {
+            return nullptr;
+        }
+        if (ctx_.initializers->narrowing(*value, target->type)) {
+            ctx_.report(DiagnosticFactory::narrowing(list->elements.front().range, types.name(value->type),
+                                                     types.name(target->type)));
+            return nullptr;
+        }
+        return convert_to(std::move(value), target->type);
+    }
     if (types.is_void(target->type)) {
         auto operand = bind(*c.operand, Use::Statement);
         if (!operand) {

@@ -63,6 +63,7 @@ constexpr MessageEntry kDiagnostics[] = {
     {"deleted-function", "'{function}' está eliminada: no se puede usar"},
     {"no-operator", "no hay operator{op} para '{type}'"},
     {"instantiated-from", "en '{function}', usada aquí"},
+    {"narrowing", "convertir '{from}' a '{to}' entre llaves puede perder información (narrowing)"},
     {"constraints-not-satisfied", "los argumentos no cumplen las restricciones de '{function}'[: {constraint}]"},
     {"stack-overflow", "desbordamiento de pila: más de {depth} llamadas anidadas"},
     {"out-of-memory", "sin memoria"},

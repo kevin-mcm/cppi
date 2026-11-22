@@ -56,6 +56,7 @@ std::string_view diag_key(DiagCode code) noexcept {
         case DiagCode::ConstraintsNotSatisfied: return "constraints-not-satisfied";
         case DiagCode::NoOperator: return "no-operator";
         case DiagCode::InstantiatedFrom: return "instantiated-from";
+        case DiagCode::Narrowing: return "narrowing";
         case DiagCode::FeatureLocked: return "feature-locked";
         case DiagCode::FeatureRequiresStandard: return "feature-requires-standard";
         case DiagCode::FeatureNotImplemented: return "feature-not-implemented";

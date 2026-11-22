@@ -291,7 +291,8 @@ struct MemberExpr {
 };
 
 /// `(T)x`, `static_cast<T>(x)` or `T(x)`.
-enum class CastKind : std::uint8_t { CStyle, Static, Functional };
+/// `List`: `T{...}`, direct-list-initialization (the operand is an InitList, C++11).
+enum class CastKind : std::uint8_t { CStyle, Static, Functional, List };
 
 /// An explicit type conversion.
 struct CastExpr {

@@ -306,6 +306,10 @@ Diagnostic DiagnosticFactory::instantiated_from(SourceRange range, const std::st
     return make(DiagCode::InstantiatedFrom, range, {{"function", function}}, Severity::Note);
 }
 
+Diagnostic DiagnosticFactory::narrowing(SourceRange range, const std::string& from, const std::string& to) {
+    return make(DiagCode::Narrowing, range, {{"from", from}, {"to", to}});
+}
+
 Diagnostic DiagnosticFactory::constraints_not_satisfied(SourceRange range, std::string_view function,
                                                         std::optional<std::string> constraint) {
     std::vector<DiagArg> args{{"function", std::string(function)}};

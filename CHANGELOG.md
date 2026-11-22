@@ -5,6 +5,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Direct-list-initialization `T{...}` (C++11): `Order{5, 2}`, `Point{1, 2}` (a constructor), `int{3}`, `int{}`, `std::vector<int>{1, 2}`, as a temporary, an argument or `auto p = Point{1, 2};`. It gave E0303 `unsupported-syntax`.
+- E0241 `narrowing` (`from`, `to`): a conversion inside braces that may lose information, which C++11 forbids (`int{2.5}`, `int a[] = {2.5};`, `char c{300};`). A constant that fits is allowed. Messages in cppi-run's English and Spanish catalogs.
 - Braced lists and `std::initializer_list<T>` (C++11, feature `initializer-lists`; E0301 below it):
   - `std::vector<int> v = {1, 2, 3};`, `v = {4, 5};` and `std::map<char, int> m = {{'a', 1}};`, through initializer-list constructors and `vector::operator=`; an initializer-list constructor wins, except that `{}` value-initializes;
   - a braced argument (`v.push_back({5, 2})`, `f({1, 2})`) is a temporary of the parameter's type;
@@ -14,6 +16,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - Container adaptors `std::queue`, `std::stack` and `std::priority_queue<T, Container = std::vector<T>, Compare = std::less<T>>`, with `push`, `pop`, `front`/`back` or `top`, `empty` and `size`. `std::queue` is a ring buffer, so `pop` is O(1) and destroys the front at once. `std::priority_queue` is a binary heap with the largest element on top, or the smallest with `std::greater`. `front`, `back`, `top` and `pop` on an empty adaptor stop with E0503 `out-of-bounds`; real C++ leaves this undefined.
 - Function objects `std::less<T>`, `std::greater<T>` and `std::equal_to<T>` (`<functional>`), which compare with `<`, `>` and `==`. For example, `std::sort(v.begin(), v.end(), std::greater<int>())` sorts in descending order.
 - `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
+
+### Changed
+- From C++11 on, a narrowing conversion inside braces is an error (E0241), as in real C++. `int a[] = {2.5};` compiled before; it still does at C++98.
 
 ### Fixed
 - A range-for destroys the temporaries of its range when the loop ends. A returned `std::vector`, for example, was never destroyed, which leaked its storage (E0510) and skipped its elements' destructors.

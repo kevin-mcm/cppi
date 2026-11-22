@@ -1727,6 +1727,24 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
         }
         return {range, ast::CastExpr{ast::CastKind::CStyle, std::move(*type), convert_expr_ptr(value)}};
     }
+    if (kind == "compound_literal_expression") {
+        // `Order{5, 2}`, `int{3}`, `std::vector<int>{1, 2}`: direct-list-initialization.
+        const TSNode type = field(node, "type");
+        const TSNode value = field(node, "value");
+        if (ts_node_is_null(type) || ts_node_is_null(value) || kind_of(value) != "initializer_list") {
+            return unsupported_expr(node);
+        }
+        std::optional<ast::TypeDesc> desc;
+        if (kind_of(type) == "type_descriptor") {
+            desc = convert_type_desc(type);  // C's `(T){...}`
+        } else if (auto spec = convert_type_node(type)) {
+            desc = ast::TypeDesc{std::move(*spec), {}};
+        }
+        if (!desc) {
+            return unsupported_expr(node);
+        }
+        return {range, ast::CastExpr{ast::CastKind::List, std::move(*desc), convert_expr_ptr(value)}};
+    }
     if (kind == "sizeof_expression") {
         ast::SizeofExpr s;
         const TSNode type = field(node, "type");
