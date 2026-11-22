@@ -437,6 +437,18 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
 
 ### Task C17: `std::function`
 
+**Status (2026-11-22): blocked; work parked on the local branch `wip/c17-std-function` (`9a0cae5`).**
+- **Done there:**
+  - the parser reads a bare function type as a template argument (`std::function<int(int)>`);
+  - sema maps `std::function<R(A...)>` to the prelude's `__function<R, A1, A2, A3>`, instead of the partial specialization planned below; the prelude stays C++;
+  - the prelude has `__callable_base`/`__callable`, type erasure with `if constexpr` on the arity, and `bad_function_call`.
+- **Blocker:** `__function` converts from any callable through a constructor template, `template <class F> __function(F f)`. cppi rejects constructor templates: `convert_method_template` refuses constructors, and construction and implicit conversions only consider ordinary constructors.
+- **Next:** a task C16c, constructor templates:
+  - in the parser;
+  - as construction candidates (`InitializerBinder::construct`);
+  - in implicit conversions, so `v.push_back(lambda)` converts.
+  Then rebase the WIP branch and finish C17's tests.
+
 - [ ] **Tests:**
   - `std::function<int(int)> f = [](int x) { return x + 1; };`;
   - a free function;
