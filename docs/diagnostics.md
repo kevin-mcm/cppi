@@ -95,6 +95,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | `exceptions` | C++98 | | `three-way-comparison` | C++20 |
 | `preprocessor` | C++98 | | `consteval` | C++20 |
 | | | | `lambda-copies-this` | C++17 |
+| | | | `multidimensional-subscript` | C++23 |
 
 `concepts` also covers constrained template parameters (`template <Number T>`) and `auto` parameters of functions (`void f(auto x)`), which are C++20 abbreviated templates. `strings` (the old feature key for string literals) and `preprocessor` (`#define` and friends) are recognized but not implemented yet; `#include` is accepted and ignored.
 

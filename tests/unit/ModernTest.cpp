@@ -1430,3 +1430,35 @@ TEST(Modern, TheCpp23LibraryNeedsCpp23) {
         EXPECT_TRUE(found) << source;
     }
 }
+
+TEST(Modern, MultidimensionalSubscriptOperator) {
+    // C++23: operator[] takes any number of indices, and `m[2, 3]` passes both.
+    const std::string matrix = R"(
+        struct M {
+            int operator[](int r, int c) const { return r * 10 + c; }
+        };
+        M m;
+        std::cout << m[2, 3] << m[4, 5];
+    )";
+    EXPECT_EQ(printed(matrix, cpp23), "2345");
+    // Before C++23 both the operator and its use are rejected, naming the feature.
+    auto r = run(matrix, cpp20);
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics.front().code, DiagCode::FeatureRequiresStandard);
+    EXPECT_EQ(r.compiled.diagnostics.front().arg_text("feature"), "multidimensional-subscript");
+    EXPECT_EQ(r.compiled.diagnostics.front().arg_text("required"), "C++23");
+    // A comma inside [] keeps its old meaning before C++23 (C++20 only deprecates it).
+    EXPECT_EQ(printed(R"(
+        struct V {
+            int operator[](int i) const { return i + 100; }
+        };
+        V v;
+        int a[3] = {5, 6, 7};
+        std::cout << v[1, 2] << " " << a[0, 2];
+    )",
+                      cpp20),
+              "102 7");
+    // With C++23 a single-index operator[] does not take two.
+    EXPECT_EQ(compile_error("struct V { int operator[](int i) const { return i; } };\nV v;\nint n = v[1, 2];\n", cpp23),
+              DiagCode::ArgumentCountMismatch);
+}

@@ -527,6 +527,8 @@ No version bump, tag or release.
 
 ### Task C21: multidimensional subscript (C++23)
 
+**Done (2026-11-22):** `ast::SubscriptExpr::more` holds the extra indices; from C++23 sema calls the class's `operator[]` with all of them, before it folds them into a comma expression. The declaration of an `operator[]` with other than one parameter gives E0301 below C++23. A single-index `operator[]` called with two at C++23 gives E0202.
+
 - [ ] **Step 1: Failing tests:**
   - `struct M { int operator[](int r, int c) const { return r * 10 + c; } }; M m; std::cout << m[2, 3];` prints `23` at C++23;
   - at C++20 it gives E0301 (feature `MultidimensionalSubscript`, C++23);

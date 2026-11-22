@@ -2021,11 +2021,51 @@ BExprPtr ExpressionBinder::conditional(const ast::ConditionalExpr& c, SourceRang
     return make(type, false, range, BConditional{std::move(cond), std::move(a), std::move(b)});
 }
 
+BExprPtr ExpressionBinder::multidimensional_subscript(const ast::SubscriptExpr& s, BExprPtr base, SourceRange range) {
+    // C++23 `obj[i, j]`: the class's operator[] with every index as an argument.
+    const TypeTable& types = ctx_.types;
+    if (!types.is_record(base->type) ||
+        members_.find(types.info(base->type).decl, "operator[]").kind != MemberResult::Kind::Methods) {
+        ctx_.report(DiagnosticFactory::not_subscriptable(s.base->range, types.name(base->type)));
+        return nullptr;
+    }
+    std::vector<BExprPtr> args;
+    auto first = bind(*s.index);
+    if (!first) {
+        return nullptr;
+    }
+    args.push_back(std::move(first));
+    for (const auto& extra : s.more) {
+        auto bound = bind(*extra);
+        if (!bound) {
+            return nullptr;
+        }
+        args.push_back(std::move(bound));
+    }
+    return call_candidates("operator[]", {}, std::move(args), range, range, std::move(base), true);
+}
+
 BExprPtr ExpressionBinder::subscript(const ast::SubscriptExpr& s, SourceRange range) {
     const TypeTable& types = ctx_.types;
     auto base = bind(*s.base);
-    auto index = bind(*s.index);
-    if (!base || !index) {
+    if (!base) {
+        return nullptr;
+    }
+    if (!s.more.empty() && ctx_.features.standard_allows(Feature::MultidimensionalSubscript)) {
+        return multidimensional_subscript(s, std::move(base), range);
+    }
+    auto index = bind(*s.index, s.more.empty() ? Use::Value : Use::Statement);
+    // Before C++23 `a[i, j]` is a comma expression: only the last index counts.
+    for (std::size_t i = 0; i < s.more.size() && index; ++i) {
+        auto next = bind(*s.more[i], i + 1 == s.more.size() ? Use::Value : Use::Statement);
+        if (!next) {
+            return nullptr;
+        }
+        const TypeRef type = next->type;
+        const bool lvalue = next->lvalue;
+        index = make(type, lvalue, range, BComma{std::move(index), std::move(next)});
+    }
+    if (!index) {
         return nullptr;
     }
     if (!types.is_record(base->type)) {

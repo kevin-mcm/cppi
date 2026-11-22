@@ -284,6 +284,8 @@ struct SubscriptExpr {
     ExprPtr base;
     /// The index.
     ExprPtr index;
+    /// The other indices of `m[2, 3]` (C++23; before it, a comma expression).
+    std::vector<ExprPtr> more;
 };
 
 /// Member access: `obj.member` or `ptr->member`.

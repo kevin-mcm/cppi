@@ -1503,6 +1503,11 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
             ok = false;
             continue;
         }
+        if (name == "operator[]" && m.params.size() != 1 &&
+            !ctx_.features.allow(Feature::MultidimensionalSubscript, m.declarator.range)) {
+            ok = false;  // C++23: an operator[] with several parameters
+            continue;
+        }
         if (ctor && m.is_virtual) {
             ctx_.report(DiagnosticFactory::declaration_not_allowed(m.declarator.range, "virtual constructor"));
             ok = false;

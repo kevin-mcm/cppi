@@ -1727,17 +1727,23 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
         const TSNode base = field(node, "argument");
         TSNode index = field(node, "index");
         const TSNode indices = field(node, "indices");
+        std::vector<TSNode> more;
         if (ts_node_is_null(index) && !ts_node_is_null(indices)) {
             const auto items = named_children(indices);
-            if (items.size() != 1) {
+            if (items.empty()) {
                 return unsupported_expr(node);
             }
             index = items.front();
+            more.assign(items.begin() + 1, items.end());
         }
         if (ts_node_is_null(base) || ts_node_is_null(index)) {
             return unsupported_expr(node);
         }
-        return {range, ast::SubscriptExpr{convert_expr_ptr(base), convert_expr_ptr(index)}};
+        ast::SubscriptExpr subscript{convert_expr_ptr(base), convert_expr_ptr(index), {}};
+        for (const TSNode extra : more) {
+            subscript.more.push_back(convert_expr_ptr(extra));
+        }
+        return {range, std::move(subscript)};
     }
     if (kind == "field_expression") {
         const TSNode base = field(node, "argument");

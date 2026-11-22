@@ -174,6 +174,8 @@ private:
     BExprPtr conditional(const ast::ConditionalExpr& c, SourceRange range);
     /// `a[i]` (built-in or operator[]).
     BExprPtr subscript(const ast::SubscriptExpr& s, SourceRange range);
+    /// C++23 `obj[i, j]`.
+    BExprPtr multidimensional_subscript(const ast::SubscriptExpr& s, BExprPtr base, SourceRange range);
     /// `object.member` / `pointer->member`.
     BExprPtr member(const ast::MemberExpr& m, SourceRange range);
     /// E0304 when `member` of the library class `type` is newer than the standard in use.

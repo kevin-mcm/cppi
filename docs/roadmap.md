@@ -58,6 +58,8 @@ Written in C++ and compiled together with the player's code (see [ADR 0008](adr/
 - Non-type template parameters (`template <class T, int N>`).
 - C++14: binary literals, digit separators, generic lambdas (`[](auto x)`), deduced return types (`auto f()`).
 - C++17: structured bindings, `if constexpr` (the discarded branch is not compiled), `inline` static members, `std::optional`, `std::variant`.
+- C++23: multidimensional `operator[]` (`m[2, 3]`), `std::expected`, `std::optional::and_then`/`transform`/`or_else`, `std::to_underlying`.
+- Library names follow the standard: using a name newer than the program's standard is E0304.
 - C++20: `operator<=>` and defaulted comparisons, designated initializers, `consteval`, concepts (`concept`, `requires` clauses and expressions, constrained template parameters, `Concept auto` parameters and abbreviated function templates, overloads ordered by constraints), with E0238 explaining which constraint failed.
 
 ## Next

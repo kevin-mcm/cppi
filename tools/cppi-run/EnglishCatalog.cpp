@@ -133,6 +133,7 @@ constexpr MessageEntry kFeatures[] = {
     {"three-way-comparison", "the three-way comparison operator <=> and defaulted comparisons"},
     {"consteval", "consteval functions"},
     {"lambda-copies-this", "capturing a copy of the object with [*this]"},
+    {"multidimensional-subscript", "an operator[] with several parameters, as in m[2, 3]"},
 };
 
 constexpr MessageEntry kUi[] = {

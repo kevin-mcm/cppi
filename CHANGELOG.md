@@ -5,6 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Multidimensional subscript (C++23, feature `multidimensional-subscript`): `int operator[](int r, int c) const` and `m[2, 3]`. Before C++23 the declaration gives E0301, and a comma inside `[]` keeps its old meaning (`a[0, 2]` is `a[2]`).
 - C++23 library (`<expected>`, `<optional>`, `<utility>`):
   - `std::expected<T, E>` with `has_value`, `operator bool`, `value()` (throws `std::bad_expected_access<E>`), `error()`, `*e` (E0513 `bad-access`, `what=std::expected`, on an error) and `value_or`, and `std::unexpected<E>`;
   - `std::optional`'s `and_then`, `transform` and `or_else`;

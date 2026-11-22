@@ -57,6 +57,9 @@ void CaptureAnalysis::expression(const ast::Expr& e, std::set<std::string>& out)
                    [&](const ast::SubscriptExpr& s) {
                        sub(s.base);
                        sub(s.index);
+                       for (const auto& extra : s.more) {
+                           sub(extra);
+                       }
                    },
                    [&](const ast::MemberExpr& m) { sub(m.base); },
                    [&](const ast::CastExpr& c) { sub(c.operand); },
