@@ -4,6 +4,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-22
+
+The first stable release: from here on the public API follows SemVer.
+
 ### Added
 - Multidimensional subscript (C++23, feature `multidimensional-subscript`): `int operator[](int r, int c) const` and `m[2, 3]`. Before C++23 the declaration gives E0301, and a comma inside `[]` keeps its old meaning (`a[0, 2]` is `a[2]`).
 - C++23 library (`<expected>`, `<optional>`, `<utility>`):
@@ -54,7 +58,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
 
 ### Changed
-- A library name newer than the standard in use is an error (E0304 `library-requires-standard`), as in real C++: `std::optional` at C++14, `std::make_unique` at C++11, `std::to_string` at C++98... Programs that compiled before may not. The table covers the names of C++11 (`unique_ptr`, `shared_ptr`, `array`, `tuple`, `function`, `initializer_list`, `to_string`, `iota`, `all_of`...), C++14 (`make_unique`), C++17 (`optional`, `variant`, `visit`...), C++20 (the concepts, the orderings) and C++23, and members of library classes (`std::optional::and_then`).
+- A library name newer than the standard in use is an error (E0304 `library-requires-standard`), as in real C++: `std::optional` at C++14, `std::make_unique` at C++11, `std::to_string` at C++98... Programs that 0.3.1 accepted may not compile now. The table covers the names of C++11 (`unique_ptr`, `shared_ptr`, `array`, `tuple`, `function`, `initializer_list`, `to_string`, `iota`, `all_of`...), C++14 (`make_unique`), C++17 (`optional`, `variant`, `visit`...), C++20 (the concepts, the orderings) and C++23, and members of library classes (`std::optional::and_then`).
 - From C++11 on, a narrowing conversion inside braces is an error (E0241), as in real C++. `int a[] = {2.5};` compiled before; it still does at C++98.
 
 ### Fixed

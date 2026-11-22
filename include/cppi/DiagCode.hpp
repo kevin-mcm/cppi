@@ -96,7 +96,7 @@ enum class DiagCode : std::uint16_t {
     MemoryLeak = 510,         ///< warning; args: count
     PureVirtualCall = 511,    ///< args: function
     InvalidPointer = 512,     ///< args: none
-    BadAccess = 513,          ///< args: what ("optional")
+    BadAccess = 513,          ///< args: what ("std::optional" or "std::expected")
 };
 
 /// True for codes in the 5xx group.

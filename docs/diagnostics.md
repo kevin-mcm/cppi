@@ -131,7 +131,7 @@ In real C++ these would silently corrupt the program or crash it; here they stop
 | E0510 | `memory-leak` | `count` | *Warning* at the end of the run: `count` blocks from `new` were never deleted. |
 | E0511 | `pure-virtual-call` | `function` | A pure virtual function is called (from a constructor or destructor). |
 | E0512 | `invalid-pointer` | — | Using a pointer outside the object it points into, or to a local variable of a function that already returned. |
-| E0513 | `bad-access` | `what` | `*opt` on an empty `std::optional` (`what` = `std::optional`). `opt.value()` throws `std::bad_optional_access` instead. |
+| E0513 | `bad-access` | `what` | `*opt` on an empty `std::optional` (`what` = `std::optional`), or `*e` on a `std::expected` holding an error (`what` = `std::expected`). `opt.value()` and `e.value()` throw `std::bad_optional_access` and `std::bad_expected_access` instead. |
 
 ## Translation example
 

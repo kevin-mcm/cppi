@@ -40,7 +40,7 @@ Do not require the individual jobs of `ci.yml`. A pull request that only touches
 
 ## Versioning
 
-- [SemVer](https://semver.org/). While the version is `0.x`, the API may change between minor versions, and releases are marked as *pre-release*.
+- [SemVer](https://semver.org/). From 1.0.0 the public API (`include/cppi/`, the diagnostic codes and their arguments, the feature keys) follows SemVer: breaking changes only in a major version. Versions `0.x` were pre-releases and could change the API between minor versions.
 - **Single source for the version:** `project(VERSION ...)` in `CMakeLists.txt`. `conanfile.py` reads it from there and `cppi/version.hpp` is generated from it.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `perf:`, `docs:`...) so the release notes read on their own.
 
@@ -50,10 +50,10 @@ Do not require the individual jobs of `ci.yml`. A pull request that only touches
 2. Merge into `master` with CI green.
 3. Create and push the tag:
    ```bash
-   git tag v0.3.1
-   git push origin v0.3.1
+   git tag v1.0.0
+   git push origin v1.0.0
    ```
-4. `release.yml` does the rest. If the tag does not match the project version, it fails without publishing anything. The release text is the version's section of `CHANGELOG.md` followed by GitHub's generated notes; `0.x` versions are marked as pre-releases.
+4. `release.yml` does the rest. If the tag does not match the project version, it fails without publishing anything. The release text is the version's section of `CHANGELOG.md` followed by GitHub's generated notes; `0.x` versions are marked as pre-releases; 1.0.0 and later are not.
 
 ## Packages
 
@@ -86,15 +86,15 @@ tools/conan-bundle.sh conan/profiles/ci Release dist/cppi-linux-x86_64-release.t
 The repository is private, so downloads need a GitHub token that can read it: `gh auth login` on a workstation, and in the game's workflows a secret with a fine-grained token (*Contents: read* on `cppi`) passed as `GH_TOKEN`.
 
 ```bash
-gh release download v0.3.1 --repo kevin-mcm/cppi --pattern 'cppi-*-conan-all.tgz' --dir build/cppi
-conan cache restore build/cppi/cppi-0.3.1-conan-all.tgz
-conan install . --build=missing ...   # finds cppi/0.3.1 in the cache
+gh release download v1.0.0 --repo kevin-mcm/cppi --pattern 'cppi-*-conan-all.tgz' --dir build/cppi
+conan cache restore build/cppi/cppi-1.0.0-conan-all.tgz
+conan install . --build=missing ...   # finds cppi/1.0.0 in the cache
 ```
 
 To try a cppi branch in the game before a release, run *Package* on that branch (Actions → Package → Run workflow, or `gh workflow run package.yml --repo kevin-mcm/cppi --ref <branch>`) and download its artifact:
 
 ```bash
-gh run download <run-id> --repo kevin-mcm/cppi --name cppi-0.3.1 --dir build/cppi
+gh run download <run-id> --repo kevin-mcm/cppi --name cppi-1.0.0 --dir build/cppi
 ```
 
 The version does not change between releases, so a restored bundle replaces the recipe revision of `cppi/<version>` that was in the cache; restore the release's bundle to go back. Artifacts are kept for 90 days.

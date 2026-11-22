@@ -537,6 +537,11 @@ No version bump, tag or release.
 
 ### Task C22: release 1.0.0
 
+**Done so far (2026-11-22), everything before "Publish":**
+- Stability review: `DiagCode.hpp` (E0304 added; the `BadAccess` comment now names `std::optional` and `std::expected`), the `Feature` table (appended only, `multidimensional-subscript` last) and C19's library table need no change; `Options` and the host registry are unchanged since 0.3.1.
+- Version 1.0.0 in `CMakeLists.txt`, README, `docs/integrating.md`, `docs/ci-cd.md` (SemVer applies from 1.0.0; `release.yml` already marks only `0.*` as pre-release); `CHANGELOG.md` has `## [1.0.0] - 2026-11-22`.
+- Verification: Debug (gcc) 219 pass; Release 219 pass; clang 18 with `CPPI_SANITIZERS=address;undefined` and `-Werror` 219 pass; `conan create . -s compiler.cppstd=20` runs `test_package` ("harvested 2 in 12 operations"); `clang-format-18` clean; level benchmarks 9222 / 150188 / 6012 operations, identical to 0.3.1.
+
 - [ ] **Stability review.** Before the version changes, read the public API that 1.0.0 freezes:
   - the host registry in `include/cppi/`;
   - `DiagCode.hpp` (codes and their arguments);
