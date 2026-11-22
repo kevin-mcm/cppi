@@ -353,6 +353,11 @@ Today `Order{5, 2}` gives E0303 `unsupported-syntax`.
   - Feature `Consteval`, C++20.
 - [ ] **Implement, run, commit** `feat: consteval functions`.
 
+**Done (2026-11-22):**
+- `consteval` is parsed as `constexpr` plus `TypeSpec::is_consteval`.
+- `make_call` evaluates each call with `ctx_.constants.eval` and replaces it with a constant. Calls inside another consteval function are left to their caller.
+- Only scalar results are folded; a consteval function returning a class still runs as an ordinary call.
+
 ### Task C14: capturing `this`
 
 **Files:** `src/sema/ExpressionBinder.cpp` (`lambda`), `src/sema/CaptureAnalysis.cpp`, `src/parse/TreeConverter.cpp`, `src/codegen`; `tests/unit/ModernTest.cpp`; `CHANGELOG.md`.
