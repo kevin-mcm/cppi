@@ -26,6 +26,8 @@ namespace {
 const Options cpp11 = standard(Standard::Cpp11);
 const Options cpp14 = standard(Standard::Cpp14);
 const Options cpp17 = standard(Standard::Cpp17);
+const Options cpp20 = standard(Standard::Cpp20);
+const Options cpp23 = standard(Standard::Cpp23);
 
 }  // namespace
 
@@ -1361,4 +1363,70 @@ TEST(Modern, StdFunction) {
     auto d = runtime_error("#include <functional>\nstd::function<int(int)> e;\nint r = e(1);\n", cpp17);
     EXPECT_EQ(d.code, DiagCode::UncaughtException);
     EXPECT_EQ(d.range.begin.line, 3);
+}
+
+TEST(Modern, StdExpectedMonadicOptionalAndToUnderlying) {
+    // C++23: expected<T, E>, optional's and_then / transform / or_else, to_underlying.
+    EXPECT_EQ(printed(R"(#include <expected>
+        #include <optional>
+        enum class Problem { None, Empty, Full };
+        std::expected<int, Problem> half(int n) {
+            if (n % 2 != 0) return std::unexpected<Problem>(Problem::Empty);
+            return n / 2;
+        }
+        std::optional<int> find(int k) {
+            if (k > 0) return k * 10;
+            return std::nullopt;
+        }
+        std::optional<int> path(int v) {
+            if (v < 100) return v + 1;
+            return std::nullopt;
+        }
+        int first(int v) { return v % 10; }
+        std::optional<int> fallback() { return 42; }
+        auto a = half(8);
+        auto b = half(7);
+        std::cout << a.has_value() << b.has_value() << a.value() << *a << static_cast<int>(b.error()) << b.value_or(9)
+                  << (a ? 'y' : 'n') << (b ? 'y' : 'n') << " ";
+        auto r = find(3).and_then(path).transform(first);
+        auto e = find(0).and_then(path).transform(first);
+        std::cout << r.has_value() << r.value() << e.has_value() << " ";
+        auto big = find(30).and_then(path);
+        std::cout << big.has_value() << " ";
+        auto o = find(0).or_else(fallback);
+        auto o2 = find(1).or_else(fallback);
+        std::cout << o.value() << o2.value() << " ";
+        std::cout << std::to_underlying(Problem::Empty) << std::to_underlying(Problem::Full) << " ";
+        try {
+            b.value();
+        } catch (const std::bad_expected_access<Problem>& x) {
+            std::cout << "caught" << static_cast<int>(x.error());
+        }
+    )",
+                      cpp23),
+              "104419yn 110 0 4210 12 caught1");
+    // `.value()` on an error is an uncaught bad_expected_access; `*e` is undefined behavior (E0513).
+    const std::string head = "#include <expected>\nstd::expected<int, int> e = std::unexpected<int>(3);\n";
+    auto uncaught = runtime_error(head + "int v = e.value();\n", cpp23);
+    EXPECT_EQ(uncaught.code, DiagCode::UncaughtException);
+    EXPECT_NE(to_debug_string(uncaught).find("bad_expected_access"), std::string::npos);
+    auto bad = runtime_error(head + "int v = *e;\n", cpp23);
+    EXPECT_EQ(bad.code, DiagCode::BadAccess);
+    EXPECT_EQ(bad.arg_text("what"), "std::expected");
+}
+
+TEST(Modern, TheCpp23LibraryNeedsCpp23) {
+    for (const char* source :
+         {"std::expected<int, int> e;\n", "std::unexpected<int> u(1);\n",
+          "enum E { A };\nint n = std::to_underlying(A);\n",
+          "std::optional<int> o = 1;\nauto r = o.and_then([](int v) { return std::optional<int>(v); });\n",
+          "std::optional<int> o = 1;\nauto r = o.transform([](int v) { return v; });\n",
+          "std::optional<int> o = 1;\nauto r = o.or_else([]() { return std::optional<int>(2); });\n"}) {
+        auto r = run(source, cpp20);
+        bool found = false;
+        for (const auto& d : r.compiled.diagnostics) {
+            found = found || d.code == DiagCode::LibraryRequiresStandard;
+        }
+        EXPECT_TRUE(found) << source;
+    }
 }

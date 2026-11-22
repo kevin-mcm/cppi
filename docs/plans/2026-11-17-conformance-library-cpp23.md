@@ -507,6 +507,8 @@ No version bump, tag or release.
 
 ### Task C20: C++23 library: `std::expected`, monadic `std::optional`, `std::to_underlying`
 
+**Done (2026-11-22):** the monadic operations name their result type with a compiler-computed `__call_result<F, A>` (the prelude has no `decltype`; `TemplateEngine::call_result`). Function pointers can now return classes (needed for `and_then(path)`). E0513's `what` is `std::expected`, with `std::`, like today's `std::optional` (the task text said without). Limits found: a lambda cannot deduce a class return type (E0230), so `or_else` takes a function; `std::unexpected(E)` needs its argument (`std::unexpected<E>(e)`), as cppi has no class template argument deduction.
+
 **Files:** `src/library/Prelude.cpp`; `tests/unit/ModernTest.cpp`; `CHANGELOG.md`.
 
 **Interfaces:**

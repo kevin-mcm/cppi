@@ -124,6 +124,8 @@ private:
     [[nodiscard]] std::optional<std::uint32_t> instantiate_function(std::uint32_t id, const std::vector<TypeRef>& args,
                                                                     SourceRange range);
     /// The class type `name<descs...>` names, through `symbol`.
+    /// What calling a `callable` with one `argument` returns (`__call_result<F, A>`).
+    [[nodiscard]] std::optional<TypeRef> call_result(TypeRef callable, TypeRef argument, SourceRange range);
     [[nodiscard]] std::optional<TypeRef> instantiate_named(Symbol* symbol, const std::vector<ast::TypeDesc>& descs,
                                                            const std::string& name, SourceRange range);
     /// The instance of class template `id` for `args` (made on first use).

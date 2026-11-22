@@ -673,3 +673,16 @@ TEST(Language, ConstructorTemplates) {
                       standard(Standard::Cpp14)),
               "4648 127 10 3 102");
 }
+
+TEST(Language, FunctionPointersCanReturnClasses) {
+    EXPECT_EQ(printed(R"(
+        struct P { int x; };
+        P make(int v) { P p; p.x = v; return p; }
+        P (*f)(int) = make;
+        std::cout << f(5).x << " ";
+        P q = f(7);
+        std::cout << q.x;
+    )",
+                      standard(Standard::Cpp11)),
+              "5 7");
+}

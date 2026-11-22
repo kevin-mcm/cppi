@@ -1399,6 +1399,10 @@ constexpr std::string_view kSource = R"cpp(
         return shared_ptr<T>(new T(a, b, c));
     }
 
+    // The type calling an F with an A returns: the compiler computes it (there is no decltype).
+    template <class F, class A>
+    struct __call_result;
+
     // --- std::optional (C++17) -------------------------------------------------------------
 
     struct nullopt_t {};
@@ -1434,11 +1438,94 @@ constexpr std::string_view kSource = R"cpp(
         }
         T value_or(const T& fallback) const { return has_ ? value_ : fallback; }
         void reset() { has_ = false; }
+        // C++23 monadic operations: f returns an optional (and_then, or_else) or a plain value (transform).
+        template <class F>
+        __call_result<F, T> and_then(F f) const {
+            if (has_) {
+                return f(value_);
+            }
+            return __call_result<F, T>();
+        }
+        template <class F>
+        optional<__call_result<F, T>> transform(F f) const {
+            if (has_) {
+                return optional<__call_result<F, T>>(f(value_));
+            }
+            return optional<__call_result<F, T>>();
+        }
+        template <class F>
+        optional<T> or_else(F f) const {
+            if (has_) {
+                return *this;
+            }
+            return f();
+        }
 
     private:
         bool has_;
         T value_;
     };
+
+    // --- std::expected (C++23) and std::to_underlying -------------------------------------
+    // Holds a value or an error; both members exist, so T and E need default constructors.
+
+    template <class E>
+    class unexpected {
+    public:
+        explicit unexpected(const E& error) : error_(error) {}
+        const E& error() const { return error_; }
+
+    private:
+        E error_;
+    };
+
+    template <class E>
+    class bad_expected_access : public exception {
+    public:
+        explicit bad_expected_access(const E& error) : exception("bad expected access"), error_(error) {}
+        const E& error() const { return error_; }
+
+    private:
+        E error_;
+    };
+
+    template <class T, class E>
+    class expected {
+    public:
+        expected() : has_(true), value_(), error_() {}
+        expected(const T& value) : has_(true), value_(value), error_() {}
+        expected(const unexpected<E>& error) : has_(false), value_(), error_(error.error()) {}
+        bool has_value() const { return has_; }
+        explicit operator bool() const { return has_; }
+        T& value() {
+            if (!has_) {
+                throw bad_expected_access<E>(error_);
+            }
+            return value_;
+        }
+        const T& value() const {
+            if (!has_) {
+                throw bad_expected_access<E>(error_);
+            }
+            return value_;
+        }
+        const E& error() const { return error_; }
+        T& operator*() {
+            __cppi_bad_expected_access(has_);
+            return value_;
+        }
+        T value_or(const T& fallback) const { return has_ ? value_ : fallback; }
+
+    private:
+        bool has_;
+        T value_;
+        E error_;
+    };
+
+    template <class E>
+    int to_underlying(E e) {
+        return static_cast<int>(e);
+    }
 
     // --- std::variant (C++17): up to four alternatives -------------------------------------
     // The active alternative lives on the heap, so only it is ever constructed.

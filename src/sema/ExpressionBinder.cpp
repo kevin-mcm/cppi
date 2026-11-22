@@ -383,9 +383,8 @@ BExprPtr ExpressionBinder::indirect_call(BExprPtr target, std::vector<BExprPtr> 
             DiagnosticFactory::no_matching_function(range, types.name(target->type), ctx_.overloads->describe(args)));
         return nullptr;
     }
-    if (types.is_record(result) || types.is_reference(result)) {
-        ctx_.report(
-            DiagnosticFactory::unsupported_syntax(range, "a function pointer returning a class or a reference"));
+    if (types.is_reference(result)) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "a function pointer returning a reference"));
         return nullptr;
     }
     BCall call;
@@ -397,6 +396,15 @@ BExprPtr ExpressionBinder::indirect_call(BExprPtr target, std::vector<BExprPtr> 
         call.args.push_back(std::move(argument));
     }
     call.indirect = std::move(target);
+    if (types.is_record(result)) {  // built in a temporary, like a direct call's result
+        call.result_temp = ctx_.allocate_local(types.cells(result));
+        if (ctx_.initializers->needs_destruction(result)) {
+            ctx_.fn->temporaries.push_back(FunctionContext::Temporary{*call.result_temp, result});
+        }
+        auto e = make(result, true, range, std::move(call));
+        e->expiring = true;
+        return e;
+    }
     return make(result, false, range, std::move(call));
 }
 

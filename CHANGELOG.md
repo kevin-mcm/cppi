@@ -5,6 +5,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- C++23 library (`<expected>`, `<optional>`, `<utility>`):
+  - `std::expected<T, E>` with `has_value`, `operator bool`, `value()` (throws `std::bad_expected_access<E>`), `error()`, `*e` (E0513 `bad-access`, `what=std::expected`, on an error) and `value_or`, and `std::unexpected<E>`;
+  - `std::optional`'s `and_then`, `transform` and `or_else`;
+  - `std::to_underlying(e)`;
+  - all of them give E0304 below C++23.
+- A function pointer can return a class (`P (*f)(int) = make;`). It gave E0303.
 - `std::function<R(A...)>` (`<functional>`, up to three parameters): holds a lambda, a free function, a capturing lambda or a function object; copying it copies the callable; calling an empty one throws `std::bad_function_call`. A function type such as `int(int)` is accepted as a template argument, and a data member that is a function pointer can be called (`f_(3)`).
 - Constructor templates: `template <class T> Wrapper(T x)`, deduced from the arguments in direct initialization, `new`, base initializers and implicit conversions (`Wrapper w = 5;`, `push_back(9)`); an ordinary constructor wins a tie. They gave E0303 `unsupported-syntax`.
 - Function pointers:

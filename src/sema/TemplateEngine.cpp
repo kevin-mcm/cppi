@@ -305,6 +305,39 @@ std::optional<TypeRef> TemplateEngine::instantiate_type(const ast::TypeSpec& spe
     return instantiate_named(symbol, spec.template_args, spec.name, spec.range);
 }
 
+std::optional<TypeRef> TemplateEngine::call_result(TypeRef callable, TypeRef argument, SourceRange range) {
+    const TypeTable& types = ctx_.types;
+    if (types.is_function_pointer(callable)) {
+        return types.signature(types.info(callable).target).first;
+    }
+    if (!types.is_record(callable)) {
+        ctx_.report(DiagnosticFactory::not_callable(range, types.name(callable)));
+        return std::nullopt;
+    }
+    BExpr probe;
+    probe.type = argument;
+    probe.lvalue = true;
+    probe.node = BLoad{};
+    std::vector<BExprPtr> args;
+    args.push_back(std::make_unique<BExpr>(std::move(probe)));
+    const std::uint32_t record = types.info(callable).decl;
+    std::vector<Callee> candidates;
+    if (const auto it = types.record_at(record).methods.find("operator()");
+        it != types.record_at(record).methods.end()) {
+        for (const std::uint32_t id : it->second) {
+            candidates.push_back(Callee{false, id});
+        }
+    }
+    for (const Callee& c : member_candidates(record, "operator()", {}, args, range)) {
+        candidates.push_back(c);
+    }
+    auto chosen = ctx_.overloads->resolve("operator()", candidates, args, range);
+    if (!chosen) {
+        return std::nullopt;
+    }
+    return ctx_.functions[chosen->id].return_type;
+}
+
 std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const std::vector<ast::TypeDesc>& descs,
                                                          const std::string& name, SourceRange range) {
     ctx_.allow_library_name(symbol, range, name);
@@ -332,6 +365,10 @@ std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const s
             return std::nullopt;
         }
         args.push_back(*resolved);
+    }
+    // `__call_result<F, A>` names what calling an `F` with an `A` returns (the prelude has no decltype).
+    if (is_library_template(id, "__call_result") && args.size() == 2) {
+        return call_result(args[0], args[1], range);
     }
     // `std::function<int(int)>` is the prelude's __function<int, int>: the
     // function type's result and parameters (up to three) as arguments.

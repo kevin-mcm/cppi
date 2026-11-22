@@ -19,15 +19,17 @@ namespace cppi::sema {
 
 /// Native operations the prelude calls by their reserved names.
 enum class Intrinsic : std::uint8_t {
-    WriteLong,    ///< void __cppi_write_long(long)
-    WriteDouble,  ///< void __cppi_write_double(double)
-    WriteChar,    ///< void __cppi_write_char(char)
-    WriteString,  ///< void __cppi_write_string(const char*)
-    CheckIndex,   ///< void __cppi_check_index(long index, long size): out-of-bounds if outside
-    BadAccess,    ///< void __cppi_bad_access(bool ok): reading an empty std::optional when !ok
-    WriteULong,   ///< void __cppi_write_ulong(unsigned long)
-    Caught,       ///< pointer to the exception being handled (typed by the catch clause)
-    Count,        ///< number of intrinsics
+    WriteLong,          ///< void __cppi_write_long(long)
+    WriteDouble,        ///< void __cppi_write_double(double)
+    WriteChar,          ///< void __cppi_write_char(char)
+    WriteString,        ///< void __cppi_write_string(const char*)
+    CheckIndex,         ///< void __cppi_check_index(long index, long size): out-of-bounds if outside
+    BadAccess,          ///< void __cppi_bad_access(bool ok): reading an empty std::optional when !ok
+    WriteULong,         ///< void __cppi_write_ulong(unsigned long)
+    BadExpectedAccess,  ///< void __cppi_bad_expected_access(bool ok): reading the value of a std::expected holding an
+                        ///< error
+    Caught,             ///< pointer to the exception being handled (typed by the catch clause)
+    Count,              ///< number of intrinsics
 };
 
 /// Signatures of the intrinsics.
@@ -55,6 +57,8 @@ public:
                 return {"__cppi_check_index", TypeTable::kVoid, {TypeTable::kLong, TypeTable::kLong}};
             case Intrinsic::BadAccess: return {"__cppi_bad_access", TypeTable::kVoid, {TypeTable::kBool}};
             case Intrinsic::WriteULong: return {"__cppi_write_ulong", TypeTable::kVoid, {TypeTable::kULong}};
+            case Intrinsic::BadExpectedAccess:
+                return {"__cppi_bad_expected_access", TypeTable::kVoid, {TypeTable::kBool}};
             case Intrinsic::Caught: return {"__cppi_caught", TypeTable::kVoid, {}};
             case Intrinsic::Count: break;
         }

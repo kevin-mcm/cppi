@@ -1067,6 +1067,11 @@ void Vm::intrinsic(const Instruction& ins) {
                 fail(DiagnosticFactory::undefined_behavior(DiagCode::BadAccess, here(), {{"what", "std::optional"}}));
             }
             break;
+        case sema::Intrinsic::BadExpectedAccess:
+            if (pop() == 0) {
+                fail(DiagnosticFactory::undefined_behavior(DiagCode::BadAccess, here(), {{"what", "std::expected"}}));
+            }
+            break;
         case sema::Intrinsic::Count: break;
     }
 }
