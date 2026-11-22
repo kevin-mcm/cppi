@@ -920,7 +920,11 @@ bool TreeConverter::convert_declarator(TSNode node, ast::Declarator& out) const 
             // (`int f(int)` declares a function and is not converted here).
             const TSNode inner = field(current, "declarator");
             const std::string_view inner_kind = ts_node_is_null(inner) ? "" : kind_of(inner);
-            if (inner_kind != "parenthesized_declarator" && inner_kind != "abstract_parenthesized_declarator") {
+            // `int(int)` alone, a function type, only as an abstract declarator
+            // (`std::function<int(int)>`).
+            const bool function_type = kind == "abstract_function_declarator" && ts_node_is_null(inner);
+            if (!function_type && inner_kind != "parenthesized_declarator" &&
+                inner_kind != "abstract_parenthesized_declarator") {
                 return false;
             }
             ast::DeclaratorPart part;
@@ -937,6 +941,9 @@ bool TreeConverter::convert_declarator(TSNode node, ast::Declarator& out) const 
                 part.params.push_back(ast::TypeDesc{std::move(param->type), std::move(param->declarator), nullptr});
             }
             out.parts.push_back(std::move(part));
+            if (function_type) {
+                return true;
+            }
             current = inner;
             continue;
         }

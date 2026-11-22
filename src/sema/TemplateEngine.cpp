@@ -323,7 +323,7 @@ std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const s
         }
         return std::nullopt;
     }
-    const std::uint32_t id = *template_id;
+    std::uint32_t id = *template_id;
     std::vector<TypeRef> args;
     for (const auto& desc : descs) {
         auto resolved = template_arg(templates_[id], args.size(), desc);
@@ -331,6 +331,19 @@ std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const s
             return std::nullopt;
         }
         args.push_back(*resolved);
+    }
+    // `std::function<int(int)>` is the prelude's __function<int, int>: the
+    // function type's result and parameters (up to three) as arguments.
+    if (is_library_template(id, "function") && args.size() == 1 && ctx_.types.is_function(args.front())) {
+        const auto signature = ctx_.types.signature(args.front());  // copy: instantiating adds types
+        const Symbol* inner = ctx_.symbols.lookup_qualified({"std"}, "__function");
+        if (inner == nullptr || inner->kind != SymbolKind::Template || signature.second.size() > 3) {
+            ctx_.report(DiagnosticFactory::unsupported_syntax(range, "std::function with more than three parameters"));
+            return std::nullopt;
+        }
+        id = inner->templates.front();
+        args = {signature.first};
+        args.insert(args.end(), signature.second.begin(), signature.second.end());
     }
     while (args.size() < templates_[id].params.size()) {
         auto fallback = default_arg(templates_[id], args);

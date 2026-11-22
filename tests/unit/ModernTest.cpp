@@ -1317,3 +1317,47 @@ TEST(Modern, StdTuple) {
                       cpp17),
               "7x1 81c 8x1 34 10111");
 }
+
+TEST(Modern, StdFunction) {
+    // std::function<R(A...)> holds any callable of that shape: a lambda, a
+    // free function, a capturing lambda, a function object; copying it copies
+    // the callable; calling an empty one throws std::bad_function_call.
+    EXPECT_EQ(printed(R"(#include <functional>
+        int twice(int x) { return 2 * x; }
+        int add(int a, int b) { return a + b; }
+        struct Counter { int n; int operator()() { return ++n; } };
+        std::function<int(int)> f = [](int x) { return x + 1; };
+        std::cout << f(1) << " ";
+        std::function<int(int)> g = twice;
+        std::cout << g(4) << " ";
+        int base = 10;
+        std::function<int(int, int)> h = [base](int a, int b) { return base + a * b; };
+        std::cout << h(2, 3) << add(1, 2) << " ";
+        std::function<int(int, int)> k = add;
+        std::cout << k(5, 6) << " ";
+        std::function<int(int)> c = f;
+        f = g;
+        std::cout << c(1) << f(1) << " ";
+        std::vector<std::function<void()>> v;
+        int hits = 0;
+        v.push_back([&hits]() { hits += 1; });
+        v.push_back([&hits]() { hits += 10; });
+        for (int i = 0; i < 2; ++i) v[i]();
+        std::cout << hits << " ";
+        std::function<int()> cnt = Counter{0};
+        cnt();
+        std::cout << cnt() << " ";
+        std::function<int(int)> empty;
+        std::cout << static_cast<bool>(empty) << static_cast<bool>(f) << " ";
+        try {
+            empty(1);
+        } catch (const std::bad_function_call&) {
+            std::cout << "bad";
+        }
+    )",
+                      cpp17),
+              "2 8 163 11 22 11 2 01 bad");
+    auto d = runtime_error("#include <functional>\nstd::function<int(int)> e;\nint r = e(1);\n", cpp17);
+    EXPECT_EQ(d.code, DiagCode::UncaughtException);
+    EXPECT_EQ(d.range.begin.line, 3);
+}

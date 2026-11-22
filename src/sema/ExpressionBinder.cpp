@@ -958,6 +958,15 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
                 }
             }
         }
+        // A data member that is a function pointer: `f_(3)` calls through this->f_.
+        if (m.kind == MemberResult::Kind::Field && types.is_function_pointer(m.field->type)) {
+            auto pointer = identifier(ast::Identifier{c.callee, {}}, c.callee_range, Use::Value);
+            auto args = bind_args();
+            if (!pointer || !args) {
+                return nullptr;
+            }
+            return indirect_call(to_rvalue(std::move(pointer)), std::move(*args), range);
+        }
         // A data member that is a function object: `comp_(a, b)` calls this->comp_.operator().
         if (m.kind == MemberResult::Kind::Field && types.is_record(m.field->type) &&
             is_function_object(types.info(m.field->type).decl)) {
@@ -1133,6 +1142,21 @@ BExprPtr ExpressionBinder::method_call(const ast::CallExpr& c, const ast::Member
         return nullptr;
     }
     if (m.kind == MemberResult::Kind::Field) {
+        if (types.is_function_pointer(m.field->type)) {  // `obj.f(3)` calls through the member
+            auto field = member(callee, callee.member_range);
+            std::vector<BExprPtr> args;
+            for (const auto& a : c.args) {
+                auto bound = bind(a);
+                if (!bound) {
+                    return nullptr;
+                }
+                args.push_back(std::move(bound));
+            }
+            if (!field) {
+                return nullptr;
+            }
+            return indirect_call(to_rvalue(std::move(field)), std::move(args), range);
+        }
         // A data member that is a function object: `obj.comp(a, b)` calls obj.comp.operator().
         if (!types.is_record(m.field->type) || !is_function_object(types.info(m.field->type).decl)) {
             ctx_.report(DiagnosticFactory::not_callable(callee.member_range, callee.member));

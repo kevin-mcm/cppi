@@ -131,16 +131,12 @@ bool OverloadResolver::converts_by_constructor(const BExpr& arg, TypeRef record)
     if (std::ranges::any_of(types.record(record).constructors, converts)) {
         return true;
     }
-    // A constructor template: its instance for this argument, tried without reporting.
-    ctx_.sink.mute();
-    const std::size_t errors_before = ctx_.sink.dropped_errors();
+    // A constructor template: its instance for this argument. Not muted: a body bound during a
+    // trial would leave the class templates it uses without their members (define_if_pending).
     const std::vector<const BExpr*> args{&arg};
     const auto instances = ctx_.templates->constructor_candidates(types.info(record).decl, args, arg.range);
-    const bool clean = ctx_.sink.dropped_errors() == errors_before;
-    ctx_.sink.unmute();
-    return clean && std::ranges::any_of(instances, [&](const Callee& c) {
-               return !ctx_.functions[c.id].is_explicit && converts(c.id);
-           });
+    return std::ranges::any_of(instances,
+                               [&](const Callee& c) { return !ctx_.functions[c.id].is_explicit && converts(c.id); });
 }
 
 ConversionRank OverloadResolver::braced_rank(const ast::InitList& list, TypeRef param) const {

@@ -437,7 +437,7 @@ Today the parser sets `captures_this` for `[this]`, and `ExpressionBinder::lambd
 
 ### Task C17: `std::function`
 
-**Status (2026-11-22): blocked; work parked on the local branch `wip/c17-std-function` (`9a0cae5`).**
+**Status (2026-11-22): done after C16c.** Implemented as the prelude's `__function` (sema maps `std::function<R(A...)>` to it) instead of partial specialization; the WIP branch was cherry-picked and finished. Limitation: a constructor template's instance for an implicit conversion is bound without muting, so a body error in a template constructor that deduces but does not suit is reported instead of dropping the candidate. (History of the block:)
 - **Done there:**
   - the parser reads a bare function type as a template argument (`std::function<int(int)>`);
   - sema maps `std::function<R(A...)>` to the prelude's `__function<R, A1, A2, A3>`, instead of the partial specialization planned below; the prelude stays C++;

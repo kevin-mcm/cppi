@@ -642,6 +642,10 @@ constexpr std::string_view kSource = R"cpp(
     public:
         bad_optional_access() : exception("bad optional access") {}
     };
+    class bad_function_call : public exception {
+    public:
+        bad_function_call() : exception("bad function call") {}
+    };
 
     char& string::at(int i) {
         if (i < 0 || i >= size_) {
@@ -992,6 +996,66 @@ constexpr std::string_view kSource = R"cpp(
         t.__2 = &c;
         return t;
     }
+
+    // --- std::function (C++11): up to three arguments ----------------------------------
+    // `std::function<int(int)>` is __function<int, int> (the compiler maps the
+    // function type). It owns a copy of the callable behind an abstract base,
+    // so any function, lambda or function object with the right call works.
+    template <class R, class A1, class A2, class A3>
+    struct __callable_base {
+        virtual ~__callable_base() {}
+        virtual R __call(A1 a1, A2 a2, A3 a3) = 0;
+        virtual __callable_base<R, A1, A2, A3>* __clone() const = 0;
+    };
+    template <class F, class R, class A1, class A2, class A3>
+    struct __callable : __callable_base<R, A1, A2, A3> {
+        F __f;
+        __callable(const F& f) : __f(f) {}
+        R __call(A1 a1, A2 a2, A3 a3) override {
+            if constexpr (__cppi_is_same<A1, __tuple_none>()) {
+                return __f();
+            } else if constexpr (__cppi_is_same<A2, __tuple_none>()) {
+                return __f(a1);
+            } else if constexpr (__cppi_is_same<A3, __tuple_none>()) {
+                return __f(a1, a2);
+            } else {
+                return __f(a1, a2, a3);
+            }
+        }
+        __callable_base<R, A1, A2, A3>* __clone() const override { return new __callable<F, R, A1, A2, A3>(__f); }
+    };
+    template <class R, class A1 = __tuple_none, class A2 = __tuple_none, class A3 = __tuple_none>
+    class __function {
+    public:
+        __function() : __target(0) {}
+        template <class F>
+        __function(F f) : __target(new __callable<F, R, A1, A2, A3>(f)) {}
+        __function(const __function<R, A1, A2, A3>& other) : __target(other.__target ? other.__target->__clone() : 0) {}
+        ~__function() { delete __target; }
+        __function<R, A1, A2, A3>& operator=(const __function<R, A1, A2, A3>& other) {
+            if (this != &other) {
+                delete __target;
+                __target = other.__target ? other.__target->__clone() : 0;
+            }
+            return *this;
+        }
+        explicit operator bool() const { return __target != 0; }
+        R operator()() const { return __invoke(A1(), A2(), A3()); }
+        R operator()(A1 a1) const { return __invoke(a1, A2(), A3()); }
+        R operator()(A1 a1, A2 a2) const { return __invoke(a1, a2, A3()); }
+        R operator()(A1 a1, A2 a2, A3 a3) const { return __invoke(a1, a2, a3); }
+
+    private:
+        R __invoke(A1 a1, A2 a2, A3 a3) const {
+            if (__target == 0) {
+                throw bad_function_call();
+            }
+            return __target->__call(a1, a2, a3);
+        }
+        __callable_base<R, A1, A2, A3>* __target;
+    };
+    template <class T>
+    class function;
 
     // --- Container adaptors: std::queue, std::stack, std::priority_queue -----------------
     // front, back, top and pop on an empty adaptor are undefined in real C++;
