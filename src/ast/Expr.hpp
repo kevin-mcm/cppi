@@ -49,6 +49,8 @@ struct TypeSpec {
     bool is_static = false;
     /// `constexpr` given.
     bool is_constexpr = false;
+    /// `consteval` (C++20): also constexpr, and every call is evaluated at compile time.
+    bool is_consteval = false;
     bool is_inline = false;                     ///< `inline static int n = 0;` (C++17)
     std::vector<std::string> scope;             ///< `Shape::Kind` -> {"Shape"}
     std::shared_ptr<TypeSpec> auto_constraint;  ///< `std::integral auto` (C++20): the concept

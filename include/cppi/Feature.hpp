@@ -102,6 +102,7 @@ enum class Feature : std::uint8_t {
     InitializerLists,        ///< C++11: `std::vector<int> v = {1, 2};`, `f({1, 2})`, `v = {3, 4}`
     DesignatedInitializers,  ///< C++20: `Order o = {.x = 5, .y = 2};`
     ThreeWayComparison,      ///< C++20: `a <=> b`, defaulted `operator<=>` and `operator==`
+    Consteval,               ///< C++20: `consteval int sq(int x)`, evaluated at compile time
 
     Count  // must stay last
 };

@@ -746,6 +746,9 @@ std::optional<ast::TypeSpec> TreeConverter::convert_type_spec(TSNode decl) const
             } else if (q == "constexpr") {
                 spec.is_constexpr = true;
                 spec.is_const = true;
+            } else if (q == "consteval") {
+                spec.is_constexpr = true;
+                spec.is_consteval = true;
             } else if (q == "inline") {
                 spec.is_inline = true;
             } else if (q != "volatile") {

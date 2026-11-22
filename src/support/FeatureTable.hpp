@@ -70,6 +70,7 @@ inline constexpr std::array<FeatureRow, kFeatureCount> kFeatureTable{{
     {Feature::InitializerLists, "initializer-lists", Standard::Cpp11},
     {Feature::DesignatedInitializers, "designated-initializers", Standard::Cpp20},
     {Feature::ThreeWayComparison, "three-way-comparison", Standard::Cpp20},
+    {Feature::Consteval, "consteval", Standard::Cpp20},
 }};
 
 /// True if row i describes Feature i, for every row.

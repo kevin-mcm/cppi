@@ -443,7 +443,20 @@ BExprPtr ExpressionBinder::make_call(const Callee& callee, std::vector<BExprPtr>
         e->expiring = true;
         return e;
     }
-    return make(ret, false, range, std::move(call));
+    auto result = make(ret, false, range, std::move(call));
+    // C++20 consteval: the call is evaluated now (except inside another
+    // consteval function, which is itself evaluated where it is called).
+    const bool immediate = ctx_.functions[callee.id].is_consteval &&
+                           !(ctx_.fn != nullptr && ctx_.functions[ctx_.fn->function].is_consteval);
+    if (immediate && types.is_scalar(ret)) {
+        const auto value = ctx_.constants.eval(*result);
+        if (!value) {
+            ctx_.report(DiagnosticFactory::not_constant(range));
+            return nullptr;
+        }
+        return constant(ret, value->is_double ? std::bit_cast<std::int64_t>(value->d) : value->i, range);
+    }
+    return result;
 }
 
 // =============================================================================

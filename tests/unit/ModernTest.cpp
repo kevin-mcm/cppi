@@ -1178,3 +1178,23 @@ TEST(Modern, ThreeWayComparisonAndDefaultedComparisons) {
     EXPECT_EQ(compile_error("struct P {\n    int x;\n    bool operator==(const P&) const = default;\n};\n", cpp17),
               DiagCode::FeatureRequiresStandard);
 }
+
+TEST(Modern, ConstevalFunctionsRunAtCompileTime) {
+    // C++20 consteval: every call is a constant (usable as an array bound), and
+    // a call inside another consteval function is evaluated with it.
+    const Options cpp20 = standard(Standard::Cpp20);
+    EXPECT_EQ(printed(R"(
+        consteval int sq(int x) { return x * x; }
+        consteval int quad(int x) { return sq(x) * sq(x); }
+        constexpr int a = sq(4);
+        int arr[sq(2)];
+        std::cout << a << " " << sq(5) << " " << quad(2) << " " << sizeof(arr) / sizeof(int);
+    )",
+                      cpp20),
+              "16 25 16 4");
+    auto r = run("consteval int sq(int x) { return x * x; }\nint n = 3;\nint r = sq(n);\n", cpp20);
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NotConstant);
+    EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 3);
+    EXPECT_EQ(compile_error("consteval int sq(int x) { return x * x; }\n", cpp17), DiagCode::FeatureRequiresStandard);
+}

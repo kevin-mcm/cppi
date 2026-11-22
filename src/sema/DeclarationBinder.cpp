@@ -789,6 +789,8 @@ void DeclarationBinder::bind_function(const ast::FunctionDecl& decl, SourceRange
         info.range = decl.declarator.range;
         info.decl = &decl;
         info.is_constexpr = decl.return_type.is_constexpr;
+        info.is_consteval =
+            decl.return_type.is_consteval && ctx_.features.allow(Feature::Consteval, decl.return_type.range);
         id = add_function(std::move(info));
         if (existing == nullptr) {
             Symbol f;
@@ -825,6 +827,7 @@ std::optional<std::uint32_t> DeclarationBinder::instantiate_function(
     info.range = decl.declarator.range;
     info.decl = &decl;
     info.is_constexpr = decl.return_type.is_constexpr;
+    info.is_consteval = decl.return_type.is_consteval;
     const std::uint32_t id = add_function(std::move(info));
     registered(id);  // before the body: recursive calls find this instance
     if (decl.body) {
@@ -855,6 +858,7 @@ std::optional<std::uint32_t> DeclarationBinder::instantiate_method(std::uint32_t
     info.is_static = decl.is_static;
     info.access = decl.access;
     info.is_constexpr = decl.return_type.is_constexpr;
+    info.is_consteval = decl.return_type.is_consteval;
     const std::uint32_t id = add_function(std::move(info));
     registered(id);  // before the body: recursive calls find this instance
     if (decl.body) {
@@ -1520,6 +1524,7 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
         info.is_explicit = m.is_explicit;
         info.is_static = m.is_static;
         info.is_constexpr = m.return_type.is_constexpr;
+        info.is_consteval = m.return_type.is_consteval && ctx_.features.allow(Feature::Consteval, m.return_type.range);
         if (m.is_defaulted) {
             // `= default`: the compiler's version of a copy constructor or
             // assignment; other members get an empty body.

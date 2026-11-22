@@ -130,6 +130,7 @@ constexpr MessageEntry kFeatures[] = {
     {"initializer-lists", "initializer lists"},
     {"designated-initializers", "designated initializers"},
     {"three-way-comparison", "the three-way comparison operator <=> and defaulted comparisons"},
+    {"consteval", "consteval functions"},
 };
 
 constexpr MessageEntry kUi[] = {

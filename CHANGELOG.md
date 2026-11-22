@@ -5,6 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- `consteval` functions (C++20, feature `consteval`). Every call outside another consteval function is evaluated at compile time and becomes a constant, usable as an array bound. A call whose value is not a constant gives E0216 `not-constant`.
 - Three-way comparison and defaulted comparisons (C++20, feature `three-way-comparison`):
   - `a <=> b` on a class's `operator<=>`, and on numbers, which gives `std::strong_ordering` for integers and `std::partial_ordering` for floating point;
   - `<compare>` has `std::strong_ordering`, `std::weak_ordering` and `std::partial_ordering`, compared with `0`, each converting to the weaker ones;
