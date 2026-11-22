@@ -295,6 +295,15 @@ Today `Order{5, 2}` gives E0303 `unsupported-syntax`.
 - [ ] **Step 2: Implement; run all tests.**
 - [ ] **Step 3: Commit** `feat: direct-list-initialization T{...}`.
 
+**Done (2026-11-22):**
+- **Parser:** `compound_literal_expression` becomes a `CastExpr` with `CastKind::List` whose operand is the `InitList`.
+- **Sema:**
+  - a class or array is a `list_temporary`;
+  - a scalar takes at most one element, without narrowing, and `{}` is 0;
+  - gated by `initializer-lists`.
+- **Narrowing** got its own code, E0241 `narrowing` (`from`, `to`), because E0211 "cannot convert" would be wrong: the conversion exists outside braces. It applies from C++11 to every braced scalar element: `T{x}`, arrays, aggregates, `initializer_list` elements and braced arguments.
+- **Not checked:** narrowing on arguments a braced list passes to a constructor (`Point{1, 2.5}` with `Point(int, int)`).
+
 ### Task C11: designated initializers (C++20)
 
 - [ ] **Tests:**
