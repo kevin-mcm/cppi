@@ -1241,3 +1241,27 @@ int x = s->test();
                             standard(Standard::Cpp14)),
               DiagCode::FeatureRequiresStandard);
 }
+
+TEST(Modern, NonTypeTemplateParameters) {
+    // `template <int N>`: N is a constant inside the template (an array bound
+    // too), deduced from Buf<int, N>, and instances differing only in N are
+    // distinct types.
+    EXPECT_EQ(printed(R"(
+        template <int N> int twice() { return 2 * N; }
+        template <class T, int N> struct Buf { T cells[N]; int size() const { return N; } };
+        template <int N> int count(const Buf<int, N>& b) { return b.size() + N; }
+        Buf<int, 3> a;
+        Buf<int, 4> b;
+        constexpr int K = 5;
+        std::cout << twice<3>() << twice<K>() << " " << a.size() << b.size() << sizeof(a) / sizeof(int) << " " << count(a);
+    )",
+                      cpp17),
+              "610 343 6");
+    auto r =
+        run("template <class T, int N> struct Buf { T cells[N]; };\nBuf<int, 3> a;\nBuf<int, 4> b;\na = b;\n", cpp17);
+    EXPECT_FALSE(r.compiled.ok());
+    // C++98 has them too.
+    EXPECT_EQ(printed("template <int N> int twice() { return 2 * N; }\nstd::cout << twice<4>();\n",
+                      standard(Standard::Cpp98)),
+              "8");
+}

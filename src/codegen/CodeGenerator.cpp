@@ -98,6 +98,7 @@ void CodeGenerator::build_metadata() {
         m.cells = types_.cells(t);
         switch (types_.kind(t)) {
             case TypeKind::Error:
+            case TypeKind::TemplateValue:
             case TypeKind::Void: m.kind = ValueKind::Void; break;
             case TypeKind::Bool: m.kind = ValueKind::Bool; break;
             case TypeKind::Char: m.kind = ValueKind::Char; break;

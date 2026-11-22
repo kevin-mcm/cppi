@@ -41,14 +41,68 @@ auto TemplateEngine::in_template_scope(const TemplateInfo& t, const std::vector<
     ctx_.symbols.push(Scope::Kind::Block);
     for (std::size_t i = 0; i < t.params.size() && i < args.size(); ++i) {
         Symbol param;
-        param.kind = SymbolKind::Type;
-        param.type = args[i];
+        if (ctx_.types.kind(args[i]) == TypeKind::TemplateValue) {
+            // A non-type parameter: `N` is a constant inside the template.
+            param.kind = SymbolKind::Constant;
+            param.type = ctx_.types.info(args[i]).target;
+            param.value = ctx_.types.template_value_of(args[i]);
+        } else {
+            param.kind = SymbolKind::Type;
+            param.type = args[i];
+        }
         ctx_.symbols.current().add(t.params[i], param);
     }
     auto result = body();
     ctx_.symbols.pop();
     ctx_.symbols.restore(std::move(previous));
     return result;
+}
+
+std::optional<TypeRef> TemplateEngine::template_arg(const TemplateInfo& t, std::size_t index,
+                                                    const ast::TypeDesc& desc) {
+    const bool value_param = index < t.value_types.size() && t.value_types[index] != nullptr;
+    if (!value_param) {
+        if (desc.value) {
+            ctx_.report(
+                DiagnosticFactory::unsupported_syntax(desc.spec.range, "a value for a type template parameter"));
+            return std::nullopt;
+        }
+        auto resolved = ctx_.type_resolver->resolve(desc);
+        if (!resolved || resolved->is_auto) {
+            return std::nullopt;
+        }
+        return resolved->type;
+    }
+    // A value: the expression, or a name the parser read as a type (`N`, a constant).
+    std::optional<std::int64_t> value;
+    if (desc.value) {
+        if (auto bound = ctx_.expressions->bind(*desc.value)) {
+            value = ctx_.constants.integer(*bound);
+        } else {
+            return std::nullopt;
+        }
+    } else if (desc.spec.template_args.empty() && desc.declarator.parts.empty()) {
+        // `N` (a non-type parameter or an enumerator) or `K` (a constexpr variable).
+        const Symbol* symbol = desc.spec.scope.empty() ? ctx_.symbols.lookup(desc.spec.name)
+                                                       : ctx_.symbols.lookup_qualified(desc.spec.scope, desc.spec.name);
+        if (symbol != nullptr && symbol->kind == SymbolKind::Constant) {
+            value = symbol->value;
+        } else if (symbol != nullptr && symbol->kind == SymbolKind::Variable) {
+            value = symbol->constant;
+        } else {
+            ctx_.report(DiagnosticFactory::unknown_identifier(desc.spec.range, desc.spec.name, std::nullopt));
+            return std::nullopt;
+        }
+    }
+    if (!value) {
+        ctx_.report(DiagnosticFactory::not_constant(desc.spec.range));
+        return std::nullopt;
+    }
+    const auto type = ctx_.type_resolver->resolve_spec(*t.value_types[index]);
+    if (!type) {
+        return std::nullopt;
+    }
+    return ctx_.types.template_value(type->type, *value);
 }
 
 std::string TemplateEngine::display(const TemplateInfo& t, const std::vector<TypeRef>& args) const {
@@ -272,11 +326,11 @@ std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const s
     const std::uint32_t id = *template_id;
     std::vector<TypeRef> args;
     for (const auto& desc : descs) {
-        auto resolved = ctx_.type_resolver->resolve(desc);
-        if (!resolved || resolved->is_auto) {
+        auto resolved = template_arg(templates_[id], args.size(), desc);
+        if (!resolved) {
             return std::nullopt;
         }
-        args.push_back(resolved->type);
+        args.push_back(*resolved);
     }
     while (args.size() < templates_[id].params.size()) {
         auto fallback = default_arg(templates_[id], args);
@@ -665,6 +719,7 @@ void TemplateEngine::forget_if_failed(Cache& cache, const Key& key, std::size_t 
 bool TemplateEngine::collect_constraints(TemplateInfo& info, const std::vector<ast::TemplateParam>& params,
                                          const ast::Expr* requires_clause, const ast::Expr* trailing,
                                          SourceRange range) {
+    info.value_types.assign(params.size(), nullptr);
     for (std::size_t i = 0; i < params.size(); ++i) {
         const auto& constraint = params[i].constraint;
         if (!constraint) {
@@ -672,8 +727,11 @@ bool TemplateEngine::collect_constraints(TemplateInfo& info, const std::vector<a
         }
         const ast::TypeSpec& spec = *constraint;
         if (!find_concept(spec.scope, spec.name)) {
-            // `template <int N>` looks like `template <Number T>`.
-            ctx_.report(DiagnosticFactory::unsupported_syntax(params[i].range, "non-type template parameter"));
+            // `template <int N>` looks like `template <Number T>`: a non-type parameter.
+            info.value_types[i] = &spec;
+            continue;
+        }
+        if (!ctx_.features.allow(Feature::Concepts, params[i].range)) {
             return false;
         }
         info.constrained.emplace_back(i, &spec);
@@ -889,11 +947,12 @@ BExprPtr TemplateEngine::call(const ast::CallExpr& call, std::vector<BExprPtr> a
     }
     std::vector<TypeRef> explicit_args;
     for (const auto& desc : call.template_args) {
-        auto resolved = ctx_.type_resolver->resolve(desc);
-        if (!resolved || resolved->is_auto) {
+        // `twice<3>()`: read against the first template's parameters (types or values).
+        auto resolved = template_arg(templates_[symbol->templates.front()], explicit_args.size(), desc);
+        if (!resolved) {
             return nullptr;
         }
-        explicit_args.push_back(resolved->type);
+        explicit_args.push_back(*resolved);
     }
 
     std::vector<Callee> candidates;

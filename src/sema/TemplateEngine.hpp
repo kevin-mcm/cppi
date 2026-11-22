@@ -106,6 +106,10 @@ private:
     /// Template parameter name -> deduced type.
     using Bindings = std::map<std::string, TypeRef, std::less<>>;
 
+    /// The template argument `desc` for parameter `index` of `t`: a type, or for a
+    /// non-type parameter a template_value() of the constant it denotes.
+    [[nodiscard]] std::optional<TypeRef> template_arg(const TemplateInfo& t, std::size_t index,
+                                                      const ast::TypeDesc& desc);
     /// The instance of function template `id` for `args` (made on first use).
     [[nodiscard]] std::optional<std::uint32_t> instantiate_function(std::uint32_t id, const std::vector<TypeRef>& args,
                                                                     SourceRange range);

@@ -86,6 +86,9 @@ struct TypeDesc {
     TypeSpec spec;
     /// Pointers, references and arrays applied to it (no name).
     Declarator declarator;
+    /// A non-type template argument written as an expression (`3` in
+    /// `std::array<int, 3>`); `spec` is then empty.
+    std::shared_ptr<Expr> value;
 };
 
 // --- Operators ------------------------------------------------------------------

@@ -1326,9 +1326,18 @@ std::optional<std::vector<ast::TypeDesc>> TreeConverter::convert_template_args(T
     }
     std::vector<ast::TypeDesc> args;
     for (const TSNode child : named_children(list)) {
+        if (kind_of(child) != "type_descriptor") {
+            // A non-type template argument: `3`, `N + 1` (a plain name such as `N`
+            // is a type_descriptor; analysis tells a constant from a type).
+            ast::TypeDesc value;
+            value.spec.range = range_of(child);
+            value.value = std::make_shared<ast::Expr>(convert_expr(child));
+            args.push_back(std::move(value));
+            continue;
+        }
         auto desc = convert_type_desc(child);
         if (!desc) {
-            return std::nullopt;  // non-type template arguments
+            return std::nullopt;
         }
         args.push_back(std::move(*desc));
     }
@@ -1742,7 +1751,7 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
         if (kind_of(type) == "type_descriptor") {
             desc = convert_type_desc(type);  // C's `(T){...}`
         } else if (auto spec = convert_type_node(type)) {
-            desc = ast::TypeDesc{std::move(*spec), {}};
+            desc = ast::TypeDesc{std::move(*spec), {}, nullptr};
         }
         if (!desc) {
             return unsupported_expr(node);

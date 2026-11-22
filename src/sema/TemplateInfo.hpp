@@ -28,9 +28,11 @@ struct TemplateInfo {
     /// Parameter names.
     std::vector<std::string> params;
     std::vector<const ast::TypeDesc*> defaults;  ///< per parameter, null if it has none
-    const ast::Stmt* inner = nullptr;            ///< the FunctionDef or RecordDef (valid during analysis)
-    const ast::FunctionDecl* method = nullptr;   ///< member function templates: the declaration
-    std::optional<std::uint32_t> record;         ///< member function templates: the class
+    /// Per parameter: the type of a non-type parameter (`int` in `int N`), null for a type.
+    std::vector<const ast::TypeSpec*> value_types;
+    const ast::Stmt* inner = nullptr;           ///< the FunctionDef or RecordDef (valid during analysis)
+    const ast::FunctionDecl* method = nullptr;  ///< member function templates: the declaration
+    std::optional<std::uint32_t> record;        ///< member function templates: the class
     /// `[](auto x) { ... }`: the call operator of a generic lambda. Its
     /// parameters are named auto#0, auto#1... in order of appearance.
     bool generic_lambda = false;

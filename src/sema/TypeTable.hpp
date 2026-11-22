@@ -67,6 +67,10 @@ public:
     [[nodiscard]] bool is_rvalue_reference(TypeRef t) const { return is_reference(t) && info(t).count == 1; }
     /// `T[count]` (count 0: unknown bound).
     [[nodiscard]] TypeRef array_of(TypeRef element, std::uint32_t count);
+    /// A non-type template argument of type `type` (`3` in `std::array<int, 3>`).
+    [[nodiscard]] TypeRef template_value(TypeRef type, std::int64_t value);
+    /// The value of a template_value() type.
+    [[nodiscard]] std::int64_t template_value_of(TypeRef value) const;
     /// A new enum type.
     [[nodiscard]] TypeRef add_enum(EnumInfo info);
     /// A new record type.
@@ -153,7 +157,7 @@ private:
     /// Entries, by TypeRef.
     std::deque<TypeInfo> types_;
     /// Structural key -> TypeRef, for interning.
-    std::map<std::tuple<TypeKind, TypeRef, bool, std::uint32_t>, TypeRef> interned_;
+    std::map<std::tuple<TypeKind, TypeRef, bool, std::uint32_t, std::uint32_t>, TypeRef> interned_;
     /// Enums, by index.
     std::deque<EnumInfo> enums_;
     /// Records, by index.

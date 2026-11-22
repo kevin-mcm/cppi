@@ -19,7 +19,7 @@ TypeTable::TypeTable() {
 }
 
 TypeRef TypeTable::intern(TypeInfo info) {
-    const auto key = std::tuple{info.kind, info.target, info.target_const, info.count};
+    const auto key = std::tuple{info.kind, info.target, info.target_const, info.count, info.decl};
     if (auto it = interned_.find(key); it != interned_.end()) {
         return it->second;
     }
@@ -35,6 +35,17 @@ TypeRef TypeTable::pointer_to(TypeRef target, bool target_const) {
 
 TypeRef TypeTable::reference_to(TypeRef target, bool target_const, bool rvalue) {
     return intern(TypeInfo{TypeKind::Reference, target, target_const, rvalue ? 1U : 0U, 0});
+}
+
+TypeRef TypeTable::template_value(TypeRef type, std::int64_t value) {
+    const auto bits = static_cast<std::uint64_t>(value);
+    return intern(TypeInfo{TypeKind::TemplateValue, type, false, static_cast<std::uint32_t>(bits),
+                           static_cast<std::uint32_t>(bits >> 32)});
+}
+
+std::int64_t TypeTable::template_value_of(TypeRef value) const {
+    const TypeInfo& t = types_[value];
+    return static_cast<std::int64_t>((std::uint64_t{t.decl} << 32) | t.count);
 }
 
 TypeRef TypeTable::array_of(TypeRef element, std::uint32_t count) {
@@ -109,6 +120,13 @@ std::string TypeTable::name(TypeRef type) const {
         case TypeKind::Pointer: return (t.target_const ? "const " : "") + name(t.target) + "*";
         case TypeKind::Reference:
             return (t.target_const ? "const " : "") + name(t.target) + (t.count == 1 ? "&&" : "&");
+        case TypeKind::TemplateValue: {
+            const std::int64_t value = template_value_of(type);
+            if (types_[t.target].kind == TypeKind::Bool) {
+                return value != 0 ? "true" : "false";
+            }
+            return std::to_string(value);
+        }
     }
     return "<error>";
 }
@@ -117,7 +135,8 @@ std::uint32_t TypeTable::cells(TypeRef type) const {
     const TypeInfo& t = types_[type];
     switch (t.kind) {
         case TypeKind::Error:
-        case TypeKind::Void: return 0;
+        case TypeKind::Void:
+        case TypeKind::TemplateValue: return 0;
         case TypeKind::Array: return t.count * cells(t.target);
         case TypeKind::Record: return records_[t.decl].size;
         default: return 1;
@@ -128,6 +147,7 @@ std::uint32_t TypeTable::byte_size(TypeRef type) const {
     const TypeInfo& t = types_[type];
     switch (t.kind) {
         case TypeKind::Error:
+        case TypeKind::TemplateValue:
         case TypeKind::Void: return 0;
         case TypeKind::Bool:
         case TypeKind::Char:

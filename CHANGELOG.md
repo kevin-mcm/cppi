@@ -5,6 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 ## [Unreleased]
 
 ### Added
+- Non-type template parameters: `template <int N>`, `template <class T, int N>`, with arguments such as `<int, 3>`, `<K>` (a constant) or `<N + 1>`. Inside the template `N` is a constant, also usable as an array bound. It is deduced from arguments such as `Buf<int, N>`, and `Buf<int, 3>` and `Buf<int, 4>` are distinct types. They gave E0303 `unsupported-syntax`.
 - Lambdas capture `this`:
   - `[this]`, and `[=]` or `[&]` in a member function, reach `this` and the object's members and member functions;
   - `[*this]` (C++17, feature `lambda-copies-this`) holds a copy of the object;
@@ -34,6 +35,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 - From C++11 on, a narrowing conversion inside braces is an error (E0241), as in real C++. `int a[] = {2.5};` compiled before; it still does at C++98.
 
 ### Fixed
+- `template <size_t N>` and `template <int N>` no longer report E0301 "concepts require C++20": telling them from `template <Number T>` is left to analysis, which checks the concept's standard.
 - `bool operator==(const P&) const = default;` compares the members. It was given an empty body, which ended without returning a value at run time (E0508).
 - A cast to a class (`static_cast<T>(x)`) uses `x` itself, a conversion operator of `x` or a constructor of `T`. It gave E0211 `cannot-convert`.
 - A range-for destroys the temporaries of its range when the loop ends. A returned `std::vector`, for example, was never destroyed, which leaked its storage (E0510) and skipped its elements' destructors.
