@@ -118,6 +118,8 @@ private:
     void inc_dec(const sema::BIncDec& i, const sema::BExpr& e, Mode mode);
     /// Generates a call to a player, library, virtual or host function.
     void call(const sema::BCall& c, const sema::BExpr& e);
+    /// True if the call leaves a value on the stack.
+    [[nodiscard]] bool returns_value(const sema::BCall& c) const;
     /// Generates a `new` expression and the constructor calls.
     void new_object(const sema::BNew& n, const sema::BExpr& e);
     /// Generates a `delete` expression and the destructor calls.
@@ -172,6 +174,9 @@ private:
     // Per function
     /// Id of the function being generated.
     std::uint32_t current_ = 0;
+    /// While true, instructions get no source location: they cost nothing and
+    /// start no statement (bookkeeping the player did not write).
+    bool unpriced_ = false;
     /// Instruction index of each label (-1 while unbound).
     std::vector<std::int64_t> labels_;
     std::vector<std::pair<std::uint32_t, std::uint32_t>> fixups_;  ///< (instruction, label)

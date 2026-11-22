@@ -29,6 +29,7 @@ constexpr MessageEntry kDiagnostics[] = {
     {"feature-requires-standard", "using {feature} requires {required} (you are using {current})"},
     {"feature-not-implemented", "{feature}: not available in this version of the game yet"},
     {"unsupported-syntax", "this construct ({construct}) is not supported"},
+    {"library-requires-standard", "'{name}' is from {standard}; this program is compiled as an earlier standard"},
     {"budget-exhausted", "out of operations: the budget of {budget} was used up"},
     {"host-error", "'{function}' failed: {detail}"},
     {"redefinition", "'{name}' is already declared"},
@@ -63,6 +64,10 @@ constexpr MessageEntry kDiagnostics[] = {
     {"deleted-function", "'{function}' is deleted: it cannot be used"},
     {"no-operator", "there is no operator{op} for '{type}'"},
     {"instantiated-from", "in '{function}', used here"},
+    {"narrowing", "converting '{from}' to '{to}' inside braces may lose information (narrowing)"},
+    {"designator-order",
+     "'.{member}' is out of place: designators name members once, in declaration order, and all elements or none have "
+     "one"},
     {"constraints-not-satisfied", "the arguments do not satisfy the constraints of '{function}'[: {constraint}]"},
     {"stack-overflow", "stack overflow: more than {depth} nested calls"},
     {"out-of-memory", "out of memory"},
@@ -123,6 +128,12 @@ constexpr MessageEntry kFeatures[] = {
     {"coroutines", "coroutines"},
     {"modules", "modules"},
     {"delegating-constructors", "delegating constructors"},
+    {"initializer-lists", "initializer lists"},
+    {"designated-initializers", "designated initializers"},
+    {"three-way-comparison", "the three-way comparison operator <=> and defaulted comparisons"},
+    {"consteval", "consteval functions"},
+    {"lambda-copies-this", "capturing a copy of the object with [*this]"},
+    {"multidimensional-subscript", "an operator[] with several parameters, as in m[2, 3]"},
 };
 
 constexpr MessageEntry kUi[] = {

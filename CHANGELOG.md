@@ -4,6 +4,84 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versio
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-22
+
+The first stable release: from here on the public API follows SemVer.
+
+### Added
+- Multidimensional subscript (C++23, feature `multidimensional-subscript`): `int operator[](int r, int c) const` and `m[2, 3]`. Before C++23 the declaration gives E0301, and a comma inside `[]` keeps its old meaning (`a[0, 2]` is `a[2]`).
+- C++23 library (`<expected>`, `<optional>`, `<utility>`):
+  - `std::expected<T, E>` with `has_value`, `operator bool`, `value()` (throws `std::bad_expected_access<E>`), `error()`, `*e` (E0513 `bad-access`, `what=std::expected`, on an error) and `value_or`, and `std::unexpected<E>`;
+  - `std::optional`'s `and_then`, `transform` and `or_else`;
+  - `std::to_underlying(e)`;
+  - all of them give E0304 below C++23.
+- A function pointer can return a class (`P (*f)(int) = make;`). It gave E0303.
+- `std::function<R(A...)>` (`<functional>`, up to three parameters): holds a lambda, a free function, a capturing lambda or a function object; copying it copies the callable; calling an empty one throws `std::bad_function_call`. A function type such as `int(int)` is accepted as a template argument, and a data member that is a function pointer can be called (`f_(3)`).
+- Constructor templates: `template <class T> Wrapper(T x)`, deduced from the arguments in direct initialization, `new`, base initializers and implicit conversions (`Wrapper w = 5;`, `push_back(9)`); an ordinary constructor wins a tie. They gave E0303 `unsupported-syntax`.
+- Function pointers:
+  - `int (*f)(int) = twice;`, `&twice`, `auto g = twice;`;
+  - calls through them (`f(3)`, `(*f)(3)`), comparisons with each other and with `nullptr`;
+  - passing them to functions and to the algorithms (`std::count_if(b, e, even)`, a comparator for `std::sort`);
+  - in an initialization, the pointer's type picks among overloads;
+  - calling a null one gives E0504 `null-dereference`.
+  - A function's name used as a value gave E0206 `function-not-called`.
+- `std::tuple` of up to four elements (`<tuple>`):
+  - `std::make_tuple` and `std::get<I>`;
+  - structured bindings (`auto [a, b, c] = t;`);
+  - `std::tie(a, b) = std::make_pair(1, 2);` or from a tuple, with up to three variables;
+  - comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`.
+- `std::array<T, N>` (`<array>`): an aggregate around a built-in array with `size`, `empty`, `[]` (E0503 out of range), `at` (throws `std::out_of_range`), `front`, `back`, `begin`/`end` and `fill`, copied by value. Brace elision initializes it: `std::array<int, 3> a = {1, 2, 3};`.
+- Non-type template parameters: `template <int N>`, `template <class T, int N>`, with arguments such as `<int, 3>`, `<K>` (a constant) or `<N + 1>`. Inside the template `N` is a constant, also usable as an array bound. It is deduced from arguments such as `Buf<int, N>`, and `Buf<int, 3>` and `Buf<int, 4>` are distinct types. They gave E0303 `unsupported-syntax`.
+- Lambdas capture `this`:
+  - `[this]`, and `[=]` or `[&]` in a member function, reach `this` and the object's members and member functions;
+  - `[*this]` (C++17, feature `lambda-copies-this`) holds a copy of the object;
+  - a lambda that runs after its object was deleted gives E0505 `use-after-free`.
+  - Capturing `this` gave E0303 `unsupported-syntax`.
+- `consteval` functions (C++20, feature `consteval`). Every call outside another consteval function is evaluated at compile time and becomes a constant, usable as an array bound. A call whose value is not a constant gives E0216 `not-constant`.
+- Three-way comparison and defaulted comparisons (C++20, feature `three-way-comparison`):
+  - `a <=> b` on a class's `operator<=>`, and on numbers, which gives `std::strong_ordering` for integers and `std::partial_ordering` for floating point;
+  - `<compare>` has `std::strong_ordering`, `std::weak_ordering` and `std::partial_ordering`, compared with `0`, each converting to the weaker ones;
+  - `auto operator<=>(const P&) const = default;` compares member by member in their common category, and declares a defaulted `operator==` if the class has none;
+  - `a < b`, `<=`, `>`, `>=` are rewritten to `(a <=> b) < 0`..., and `a != b` to `!(a == b)`, when the class has no such operator, so `std::sort` of such a class needs no comparator.
+- Designated initializers (C++20, feature `designated-initializers`): `Order o = {.x = 5, .y = 2};`, `Order{.y = 2}`. Members without a designator are value-initialized or take their default member initializer.
+- E0242 `designator-order` (`member`): a designator out of declaration order, repeated, or mixed with undesignated elements. A designator naming no member is E0218 `no-member`. Messages in cppi-run's English and Spanish catalogs.
+- Direct-list-initialization `T{...}` (C++11): `Order{5, 2}`, `Point{1, 2}` (a constructor), `int{3}`, `int{}`, `std::vector<int>{1, 2}`, as a temporary, an argument or `auto p = Point{1, 2};`. It gave E0303 `unsupported-syntax`.
+- E0241 `narrowing` (`from`, `to`): a conversion inside braces that may lose information, which C++11 forbids (`int{2.5}`, `int a[] = {2.5};`, `char c{300};`). A constant that fits is allowed. Messages in cppi-run's English and Spanish catalogs.
+- Braced lists and `std::initializer_list<T>` (C++11, feature `initializer-lists`; E0301 below it):
+  - `std::vector<int> v = {1, 2, 3};`, `v = {4, 5};` and `std::map<char, int> m = {{'a', 1}};`, through initializer-list constructors and `vector::operator=`; an initializer-list constructor wins, except that `{}` value-initializes;
+  - a braced argument (`v.push_back({5, 2})`, `f({1, 2})`) is a temporary of the parameter's type;
+  - `for (int x : {1, 2, 3})` iterates a `std::initializer_list` whose element type is deduced;
+  - the elements live in a temporary array, destroyed at the end of the full-expression.
+- Algorithms `std::count_if`, `std::find_if`, `std::find_if_not`, `std::all_of`, `std::any_of`, `std::none_of`, `std::min_element`/`std::max_element` with a comparator, `std::stable_sort` (with or without a comparator) and `std::iota` (`<numeric>`).
+- Container adaptors `std::queue`, `std::stack` and `std::priority_queue<T, Container = std::vector<T>, Compare = std::less<T>>`, with `push`, `pop`, `front`/`back` or `top`, `empty` and `size`. `std::queue` is a ring buffer, so `pop` is O(1) and destroys the front at once. `std::priority_queue` is a binary heap with the largest element on top, or the smallest with `std::greater`. `front`, `back`, `top` and `pop` on an empty adaptor stop with E0503 `out-of-bounds`; real C++ leaves this undefined.
+- Function objects `std::less<T>`, `std::greater<T>` and `std::equal_to<T>` (`<functional>`), which compare with `<`, `>` and `==`. For example, `std::sort(v.begin(), v.end(), std::greater<int>())` sorts in descending order.
+- `std::pair` comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`. They compare `first`, then `second`, with only the members' `==` and `<`. `std::sort` of pairs needs no comparator. A pair whose member type has no `<` reports E0239 `no-operator` for that type at the player's comparison, followed by the note E0240 `instantiated-from` (`function=std::operator< <P, int>`).
+
+### Changed
+- A library name newer than the standard in use is an error (E0304 `library-requires-standard`), as in real C++: `std::optional` at C++14, `std::make_unique` at C++11, `std::to_string` at C++98... Programs that 0.3.1 accepted may not compile now. The table covers the names of C++11 (`unique_ptr`, `shared_ptr`, `array`, `tuple`, `function`, `initializer_list`, `to_string`, `iota`, `all_of`...), C++14 (`make_unique`), C++17 (`optional`, `variant`, `visit`...), C++20 (the concepts, the orderings) and C++23, and members of library classes (`std::optional::and_then`).
+- From C++11 on, a narrowing conversion inside braces is an error (E0241), as in real C++. `int a[] = {2.5};` compiled before; it still does at C++98.
+
+### Fixed
+- `template <size_t N>` and `template <int N>` no longer report E0301 "concepts require C++20": telling them from `template <Number T>` is left to analysis, which checks the concept's standard.
+- `bool operator==(const P&) const = default;` compares the members. It was given an empty body, which ended without returning a value at run time (E0508).
+- A cast to a class (`static_cast<T>(x)`) uses `x` itself, a conversion operator of `x` or a constructor of `T`. It gave E0211 `cannot-convert`.
+- A range-for destroys the temporaries of its range when the loop ends. A returned `std::vector`, for example, was never destroyed, which leaked its storage (E0510) and skipped its elements' destructors.
+- A data member that is a function object can be called: `comp_(a, b)` inside the class, and `obj.comp(a, b)` or `p->comp(a, b)` outside it. This gave E0200 `unknown-function` or E0204 `not-callable`.
+- `std::vector` constructs and destroys only the elements it holds, as a real one does:
+  - `reserve` constructs nothing;
+  - `push_back` needs no default constructor;
+  - `pop_back`, `clear`, `erase`, a shrinking `resize` and the vector's own end run the elements' destructors;
+  - growing moves each element once (copies it without a move constructor), even when the pushed value is one of the elements.
+  - `resize(n)` value-initializes the new elements, and `resize(n, value)` is new.
+  - Operation counts do not change.
+- A member function of a class template instance is defined only when it is used ([temp.inst]). `template <class A> struct W { bool operator<(const W&) const; ... }; W<P> a;` compiles although `P` has no `<`. Calling the member still reports the error, at the player's call when it is in the standard library. For example, `std::vector<N>::resize(3)` without `N()` gives E0232 at that line. Virtual functions are still defined with the class.
+- A virtual call made while a base class's constructor or destructor runs calls that base's version, not the derived class's ([class.cdtor]). This holds for direct calls and for calls through a member function. `struct B { B() { std::cout << name(); } ... }; struct D : B { ... }; D d;` prints `B`, not `D`. The bookkeeping is not charged, so operation counts do not change. Classes with virtual bases keep the old behavior while they are being built or destroyed; once built, they dispatch as before.
+- Operators written as function templates (`template <class A, class B> bool operator<(const Pr<A, B>&, const Pr<A, B>&)`) are found and deduced from the operands, also from the namespace of the operands' class. They gave E0239 `no-operator`.
+- A function template may share its name with ordinary functions (`int f(int); template <class T> int f(T);`), declared before or after them. This gave E0208 `redefinition`. On equal conversions the ordinary function is chosen, and `f<int>(x)` calls the template.
+- A missing operator used several times inside one standard library function is reported once at the player's call, not once per use.
+- A function whose `return` value had an error no longer also gets the warning E0222 `missing-return`.
+- Template operators are named `operator< <P, int>` in messages, not `operator<<P, int>`.
+
 ## [0.3.1] - 2026-10-09
 
 ### Added

@@ -29,6 +29,7 @@ constexpr MessageEntry kDiagnostics[] = {
     {"feature-requires-standard", "para usar {feature} necesitas {required} (estás usando {current})"},
     {"feature-not-implemented", "{feature}: todavía no disponible en esta versión del juego"},
     {"unsupported-syntax", "esta construcción ({construct}) no está soportada"},
+    {"library-requires-standard", "'{name}' es de {standard}; este programa se compila con un estándar anterior"},
     {"budget-exhausted", "sin operaciones: se agotó el presupuesto de {budget}"},
     {"host-error", "'{function}' falló: {detail}"},
     {"redefinition", "'{name}' ya fue declarado"},
@@ -63,6 +64,10 @@ constexpr MessageEntry kDiagnostics[] = {
     {"deleted-function", "'{function}' está eliminada: no se puede usar"},
     {"no-operator", "no hay operator{op} para '{type}'"},
     {"instantiated-from", "en '{function}', usada aquí"},
+    {"narrowing", "convertir '{from}' a '{to}' entre llaves puede perder información (narrowing)"},
+    {"designator-order",
+     "'.{member}' está fuera de lugar: los designadores nombran cada miembro una vez, en el orden de declaración, y "
+     "los llevan todos los elementos o ninguno"},
     {"constraints-not-satisfied", "los argumentos no cumplen las restricciones de '{function}'[: {constraint}]"},
     {"stack-overflow", "desbordamiento de pila: más de {depth} llamadas anidadas"},
     {"out-of-memory", "sin memoria"},
@@ -123,6 +128,12 @@ constexpr MessageEntry kFeatures[] = {
     {"coroutines", "las corrutinas"},
     {"modules", "los módulos"},
     {"delegating-constructors", "los constructores delegados"},
+    {"initializer-lists", "las listas de inicialización"},
+    {"designated-initializers", "los inicializadores designados"},
+    {"three-way-comparison", "el operador de comparación de tres vías <=> y las comparaciones por defecto"},
+    {"consteval", "las funciones consteval"},
+    {"lambda-copies-this", "capturar una copia del objeto con [*this]"},
+    {"multidimensional-subscript", "un operator[] con varios parámetros, como en m[2, 3]"},
 };
 
 constexpr MessageEntry kUi[] = {

@@ -50,6 +50,10 @@ public:
 
     /// Conversion rank of one argument for one parameter type.
     [[nodiscard]] ConversionRank rank(const BExpr& arg, TypeRef param) const;
+    /// How well a braced list `{...}` initializes a parameter of type `param`:
+    /// a std::initializer_list best, a class (constructor or aggregate) next,
+    /// a scalar from at most one element; never a non-const lvalue reference.
+    [[nodiscard]] ConversionRank braced_rank(const ast::InitList& list, TypeRef param) const;
     /// The conversion operator (`operator bool()`...) of `record` that yields
     /// something convertible to `target`.
     [[nodiscard]] std::optional<std::uint32_t> conversion_operator(TypeRef record, TypeRef target,

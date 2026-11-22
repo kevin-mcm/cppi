@@ -24,6 +24,7 @@ target_sources(
           codegen/Disassembler.cpp
           codegen/OpCode.cpp
           codegen/Reachability.cpp
+          library/LibraryStandards.cpp
           library/Prelude.cpp
           parse/FeatureScanner.cpp
           parse/IntegerLiteralParser.cpp

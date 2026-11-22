@@ -8,6 +8,7 @@
 
 #include "sema/ExpressionBinder.hpp"
 #include "sema/LvalueCloner.hpp"
+#include "sema/NameSuggester.hpp"
 #include "sema/OverloadResolver.hpp"
 #include "sema/TemplateEngine.hpp"
 #include "support/DiagnosticFactory.hpp"
@@ -97,6 +98,34 @@ bool InitializerBinder::initialize(BExprPtr target, TypeRef type, const ast::Var
 }
 
 bool InitializerBinder::initialize_expr(BExprPtr target, TypeRef type, const ast::Expr& init, std::vector<BStmt>& out) {
+    // `int (*p)(int) = f;` with an overloaded `f`: the overload whose type is the pointer's.
+    if (ctx_.types.is_function_pointer(type)) {
+        const ast::Expr* name = &init;
+        if (const auto* u = std::get_if<ast::UnaryExpr>(&init.node); u != nullptr && u->op == ast::UnaryOp::AddressOf) {
+            name = u->operand.get();
+        }
+        if (const auto* id = std::get_if<ast::Identifier>(&name->node); id != nullptr && id->scope.empty()) {
+            const Symbol* symbol = ctx_.symbols.lookup(id->name);
+            if (symbol != nullptr && symbol->kind == SymbolKind::Functions && symbol->functions.size() > 1) {
+                const auto& wanted = ctx_.types.signature(ctx_.types.info(type).target);
+                for (const Callee& c : symbol->functions) {
+                    if (c.host || c.intrinsic || ctx_.functions[c.id].record ||
+                        ctx_.functions[c.id].return_type != wanted.first ||
+                        ctx_.functions[c.id].params.size() != wanted.second.size()) {
+                        continue;
+                    }
+                    bool same = true;
+                    for (std::size_t i = 0; i < wanted.second.size(); ++i) {
+                        same = same && ctx_.functions[c.id].params[i].type == wanted.second[i];
+                    }
+                    if (same) {
+                        return initialize_from(std::move(target), type,
+                                               ctx_.expressions->function_pointer(c.id, init.range), out);
+                    }
+                }
+            }
+        }
+    }
     if (ctx_.types.is_array(type)) {
         if (std::holds_alternative<ast::StringLiteral>(init.node) &&
             ctx_.types.kind(ctx_.types.info(type).target) == TypeKind::Char) {
@@ -127,7 +156,7 @@ bool InitializerBinder::initialize_expr(BExprPtr target, TypeRef type, const ast
         return false;
     }
     return initialize_from(std::move(target), type, std::move(value), out);
-}
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks): owned by the variant
 
 bool InitializerBinder::initialize_from(BExprPtr target, TypeRef type, BExprPtr value, std::vector<BStmt>& out) {
     const TypeTable& types = ctx_.types;
@@ -145,10 +174,217 @@ bool InitializerBinder::initialize_from(BExprPtr target, TypeRef type, BExprPtr 
     return true;
 }
 
+namespace {
+
+/// Width in bits and signedness of an integer kind (bool is one unsigned bit).
+std::optional<std::pair<int, bool>> integer_shape(TypeKind kind) {
+    switch (kind) {
+        case TypeKind::Bool: return std::pair{1, false};
+        case TypeKind::Char: return std::pair{8, true};
+        case TypeKind::UChar: return std::pair{8, false};
+        case TypeKind::Short: return std::pair{16, true};
+        case TypeKind::UShort: return std::pair{16, false};
+        case TypeKind::Int: return std::pair{32, true};
+        case TypeKind::UInt: return std::pair{32, false};
+        case TypeKind::Long: return std::pair{64, true};
+        case TypeKind::ULong: return std::pair{64, false};
+        default: return std::nullopt;
+    }
+}
+
+}  // namespace
+
+bool InitializerBinder::narrowing(const BExpr& from, TypeRef to) const {
+    const TypeTable& types = ctx_.types;
+    if (!ctx_.features.standard_allows(Feature::InitializerLists)) {
+        return false;  // C++98 allows it
+    }
+    const TypeKind source = types.kind(from.type);
+    const TypeKind target = types.kind(to);
+    const bool source_floating = source == TypeKind::Double;
+    const bool target_floating = target == TypeKind::Double;
+    const auto* constant = std::get_if<BConst>(&from.node);
+    if (source_floating) {
+        return !target_floating && integer_shape(target).has_value();  // double -> float: one kind here
+    }
+    const auto from_shape = integer_shape(source);
+    if (!from_shape) {
+        return false;  // enums, pointers, classes: not arithmetic narrowing
+    }
+    if (target_floating) {
+        return constant == nullptr;  // an integer constant is assumed to fit a double
+    }
+    const auto to_shape = integer_shape(target);
+    if (!to_shape) {
+        return false;
+    }
+    const auto [from_bits, from_signed] = *from_shape;
+    const auto [to_bits, to_signed] = *to_shape;
+    const bool always_fits =
+        (to_bits > from_bits && (to_signed || !from_signed)) || (to_bits == from_bits && to_signed == from_signed);
+    if (always_fits) {
+        return false;
+    }
+    if (constant == nullptr) {
+        return true;
+    }
+    const std::int64_t value = constant->bits;
+    if (to_bits >= 64) {
+        return to_signed ? (!from_signed && value < 0) : value < 0;
+    }
+    const std::int64_t low = to_signed ? -(std::int64_t{1} << (to_bits - 1)) : 0;
+    const std::int64_t high = to_signed ? (std::int64_t{1} << (to_bits - 1)) - 1 : (std::int64_t{1} << to_bits) - 1;
+    return value < low || value > high;
+}
+
+bool InitializerBinder::initialize_element(BExprPtr target, TypeRef type, const ast::Expr& item,
+                                           std::vector<BStmt>& out) {
+    if (!ctx_.types.is_scalar(type) || !ctx_.features.standard_allows(Feature::InitializerLists)) {
+        return initialize_expr(std::move(target), type, item, out);
+    }
+    auto value = ctx_.expressions->bind_rvalue(item);
+    if (!value) {
+        return false;
+    }
+    if (narrowing(*value, type)) {
+        ctx_.report(DiagnosticFactory::narrowing(item.range, ctx_.types.name(value->type), ctx_.types.name(type)));
+        return false;
+    }
+    return initialize_from(std::move(target), type, std::move(value), out);
+}
+
+std::optional<TypeRef> InitializerBinder::initializer_list_element(TypeRef type) const {
+    if (!ctx_.types.is_record(type) || ctx_.templates == nullptr) {
+        return std::nullopt;
+    }
+    const auto origin = ctx_.templates->origin(type);
+    if (!origin || origin->second.size() != 1 ||
+        !ctx_.templates->is_library_template(origin->first, "initializer_list")) {
+        return std::nullopt;
+    }
+    return origin->second.front();
+}
+
+std::optional<TypeRef> InitializerBinder::initializer_list_constructor(TypeRef type) const {
+    const TypeTable& types = ctx_.types;
+    if (!types.is_record(type)) {
+        return std::nullopt;
+    }
+    for (const std::uint32_t id : types.record(type).constructors) {
+        const auto& params = ctx_.functions[id].params;
+        if (params.empty()) {
+            continue;
+        }
+        const TypeRef first =
+            types.is_reference(params.front().type) ? types.info(params.front().type).target : params.front().type;
+        const bool rest_defaulted = std::all_of(params.begin() + 1, params.end(),
+                                                [](const ParamInfo& p) { return p.default_value != nullptr; });
+        if (rest_defaulted && initializer_list_element(first)) {
+            return first;
+        }
+    }
+    return std::nullopt;
+}
+
+bool InitializerBinder::initialize_initializer_list(BExprPtr target, TypeRef type, TypeRef element_type,
+                                                    const ast::InitList& list, SourceRange range,
+                                                    std::vector<BStmt>& out) {
+    TypeTable& types = ctx_.types;
+    const auto count = static_cast<std::uint32_t>(list.elements.size());
+    const auto fields = types.record(type).fields;  // copy: binding may add types
+    const auto find = [&](std::string_view name) {
+        return std::find_if(fields.begin(), fields.end(), [&](const FieldInfo& f) { return f.name == name; });
+    };
+    const auto first = find("__first");
+    const auto size = find("__size");
+    if (first == fields.end() || size == fields.end()) {
+        ctx_.report(DiagnosticFactory::cannot_convert(range, "{...}", types.name(type)));
+        return false;
+    }
+    // The elements live in a temporary array, as in real C++ (destroyed at the
+    // end of the full-expression); the list points at it.
+    BExprPtr address;
+    if (count == 0) {
+        address = ExpressionBinder::constant(first->type, 0, range);
+    } else {
+        const TypeRef array = types.array_of(element_type, count);
+        BVar slot;
+        slot.cells = std::max<std::uint32_t>(1, types.cells(array));
+        slot.offset = ctx_.allocate_local(slot.cells);
+        auto elements = ExpressionBinder::make(array, true, range, slot);
+        if (!initialize_list(LvalueCloner::clone(*elements), array, list, range, out)) {
+            return false;
+        }
+        if (needs_destruction(array)) {
+            ctx_.fn->temporaries.push_back(FunctionContext::Temporary{slot.offset, array});
+        }
+        address = ExpressionBinder::make(first->type, false, range, BAddressOf{element(*elements, 0)});
+    }
+    out.push_back(stmt(range, BStore{field_of(*target, *first), std::move(address)}));
+    out.push_back(stmt(range, BStore{field_of(*target, *size), ExpressionBinder::constant(size->type, count, range)}));
+    return true;
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks): owned by the variant
+
+bool InitializerBinder::designate(TypeRef type, const ast::InitList& list, std::vector<const ast::Expr*>& given) {
+    // C++20: `{.x = 5, .y = 2}` names the members in declaration order, each
+    // once, and every element has a designator or none does.
+    TypeTable& types = ctx_.types;
+    if (!ctx_.features.allow(Feature::DesignatedInitializers, list.elements.front().range)) {
+        return false;
+    }
+    const auto& fields = types.record(type).fields;
+    std::size_t next = 0;  // fields before this one can no longer be named
+    for (std::size_t i = 0; i < list.elements.size(); ++i) {
+        const std::string& name = list.designators[i];
+        const SourceRange at = list.elements[i].range;
+        if (name.empty()) {
+            ctx_.report(DiagnosticFactory::designator_order(at, next < fields.size() ? fields[next].name : ""));
+            return false;
+        }
+        const auto field =
+            std::find_if(fields.begin(), fields.end(), [&](const FieldInfo& f) { return f.name == name; });
+        if (field == fields.end()) {
+            std::vector<std::string> names;
+            names.reserve(fields.size());
+            for (const auto& f : fields) {
+                names.push_back(f.name);
+            }
+            ctx_.report(DiagnosticFactory::no_member(at, types.name(type), name, NameSuggester::closest(name, names)));
+            return false;
+        }
+        const auto index = static_cast<std::size_t>(field - fields.begin());
+        if (index < next) {
+            ctx_.report(DiagnosticFactory::designator_order(at, name));
+            return false;
+        }
+        given[index] = &list.elements[i];
+        next = index + 1;
+    }
+    return true;
+}
+
 bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast::InitList& list, SourceRange range,
                                         std::vector<BStmt>& out) {
     TypeTable& types = ctx_.types;
     const auto& items = list.elements;
+
+    // Designated initializers only name the members of an aggregate.
+    if (!list.designators.empty()) {
+        const bool aggregate = types.is_record(type) && !types.record(type).user_constructors &&
+                               types.record(type).bases.empty() && !types.record(type).has_header;
+        if (!aggregate) {
+            ctx_.report(DiagnosticFactory::cannot_convert(range, "{.member = ...}", types.name(type)));
+            return false;
+        }
+    }
+
+    // `std::initializer_list<int> l = {1, 2};`, or a parameter or temporary of that type (C++11).
+    if (const auto element = initializer_list_element(type)) {
+        if (!ctx_.features.allow(Feature::InitializerLists, range)) {
+            return false;
+        }
+        return initialize_initializer_list(std::move(target), type, *element, list, range, out);
+    }
 
     if (types.is_scalar(type)) {
         if (items.empty()) {
@@ -159,7 +395,7 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             ctx_.report(DiagnosticFactory::too_many_initializers(range, 1, items.size()));
             return false;
         }
-        return initialize_expr(std::move(target), type, items.front(), out);
+        return initialize_element(std::move(target), type, items.front(), out);
     }
 
     if (types.is_array(type)) {
@@ -186,7 +422,7 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             if (const auto* sub = std::get_if<ast::InitList>(&item.node)) {
                 ok = initialize_list(std::move(slot), elem, *sub, item.range, out);
             } else {
-                ok = initialize_expr(std::move(slot), elem, item, out);
+                ok = initialize_element(std::move(slot), elem, item, out);
             }
             if (!ok) {
                 return false;
@@ -196,6 +432,24 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
     }
 
     if (types.is_record(type)) {
+        // [dcl.init.list]: an initializer-list constructor wins (`std::vector<int> v = {1, 2};`),
+        // except that empty braces value-initialize a class with a default constructor.
+        if (const auto list_type = initializer_list_constructor(type)) {
+            bool has_default = false;
+            for (const std::uint32_t id : types.record(type).constructors) {
+                has_default =
+                    has_default || ctx_.overloads->defaults(Callee{false, id}) == ctx_.functions[id].params.size();
+            }
+            if (!items.empty() || !has_default) {
+                auto object = ctx_.expressions->list_temporary(*list_type, list, range);
+                if (!object) {
+                    return false;
+                }
+                std::vector<BExprPtr> args;
+                args.push_back(std::move(object));
+                return construct(std::move(target), type, std::move(args), range, out);
+            }
+        }
         RecordInfo& info = types.record(type);
         if (info.user_constructors || !info.bases.empty() || info.has_header) {
             // A class: the braces hold constructor arguments (C++11).
@@ -209,24 +463,40 @@ bool InitializerBinder::initialize_list(BExprPtr target, TypeRef type, const ast
             }
             return construct(std::move(target), type, std::move(args), range, out);
         }
-        // An aggregate: one initializer per field, in order.
+        // Brace elision: `std::array<int, 3> a = {1, 2, 3};` initializes the
+        // aggregate's only member, an array, from the whole list.
+        if (list.designators.empty() && info.fields.size() == 1 && types.is_array(info.fields.front().type) &&
+            (items.size() != 1 || !std::holds_alternative<ast::InitList>(items.front().node))) {
+            const FieldInfo field = info.fields.front();
+            return initialize_list(field_of(*target, field), field.type, list, range, out);
+        }
+        // An aggregate: one initializer per field, in order, or by designator.
         if (items.size() > info.fields.size()) {
             ctx_.report(DiagnosticFactory::too_many_initializers(range, info.fields.size(), items.size()));
             return false;
         }
-        if (items.size() < info.fields.size()) {
+        const auto fields = info.fields;  // copy: binding may add types
+        std::vector<const ast::Expr*> given(fields.size(), nullptr);
+        if (list.designators.empty()) {
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                given[i] = &items[i];
+            }
+        } else if (!designate(type, list, given)) {
+            return false;
+        }
+        if (std::count(given.begin(), given.end(), nullptr) > 0) {
             out.push_back(stmt(range, BZero{LvalueCloner::clone(*target), types.cells(type)}));
         }
-        for (std::size_t i = 0; i < info.fields.size(); ++i) {
-            const FieldInfo field = info.fields[i];
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            const FieldInfo& field = fields[i];
             auto slot = field_of(*target, field);
             bool ok = true;
-            if (i < items.size()) {
-                const ast::Expr& item = items[i];
+            if (given[i] != nullptr) {
+                const ast::Expr& item = *given[i];
                 if (const auto* sub = std::get_if<ast::InitList>(&item.node)) {
                     ok = initialize_list(std::move(slot), field.type, *sub, item.range, out);
                 } else {
-                    ok = initialize_expr(std::move(slot), field.type, item, out);
+                    ok = initialize_element(std::move(slot), field.type, item, out);
                 }
             } else if (field.default_init != nullptr) {
                 ok = initialize(std::move(slot), field.type, *field.default_init, false, out);
@@ -310,6 +580,9 @@ bool InitializerBinder::construct(BExprPtr target, TypeRef type, std::vector<BEx
     for (const std::uint32_t id : info.constructors) {
         ctors.push_back(Callee{false, id});
     }
+    for (const Callee& c : ctx_.templates->constructor_candidates(record, args, range)) {
+        ctors.push_back(c);
+    }
     if (args.empty()) {
         bool has_default = false;
         for (const std::uint32_t id : info.constructors) {
@@ -343,6 +616,10 @@ bool InitializerBinder::construct(BExprPtr target, TypeRef type, std::vector<BEx
     if (!init_virtual_bases(*target, record, range, out)) {
         return false;
     }
+    // Constructors set the headers to their own class as they run ([class.cdtor]);
+    // with virtual bases they cannot (the layout is the complete object's), so
+    // the complete object's headers are written again once it is built.
+    BExprPtr restore = info.has_header && !info.virtual_base_offsets.empty() ? LvalueCloner::clone(*target) : nullptr;
     std::vector<BExprPtr> call_args;
     call_args.push_back(ExpressionBinder::make(types.pointer_to(type), false, range, BAddressOf{std::move(target)}));
     for (auto& a : *prepared) {
@@ -350,6 +627,9 @@ bool InitializerBinder::construct(BExprPtr target, TypeRef type, std::vector<BEx
     }
     auto call = ctx_.expressions->make_call(callee, std::move(call_args), range);
     out.push_back(stmt(range, BExprStmt{std::move(*call)}));
+    if (restore) {
+        out.push_back(stmt(range, BInitHeaders{std::move(restore), record, true}));
+    }
     return true;
 }
 
@@ -416,7 +696,12 @@ bool InitializerBinder::default_initialize(BExprPtr target, TypeRef type, bool f
         return false;
     }
     // Implicit default constructor: bases, then members with initializers or constructors.
-    for (const BaseInfo& base : info.bases) {
+    // Once the bases are built the object is of this class again ([class.cdtor]):
+    // their constructors set the headers to their own classes.
+    const bool own_headers = info.has_header && !info.bases.empty() && (complete || info.virtual_base_offsets.empty());
+    const std::uint32_t own_record = types.info(type).decl;
+    const auto bases = info.bases;  // copy: binding may add types
+    for (const BaseInfo& base : bases) {
         if (base.is_virtual) {
             continue;  // initialized once, by the complete object
         }
@@ -427,6 +712,9 @@ bool InitializerBinder::default_initialize(BExprPtr target, TypeRef type, bool f
         if (!ok) {
             return false;
         }
+    }
+    if (own_headers) {
+        out.push_back(stmt(range, BInitHeaders{LvalueCloner::clone(*target), own_record, true}));
     }
     const auto fields = info.fields;
     for (const FieldInfo& field : fields) {
@@ -627,6 +915,12 @@ bool InitializerBinder::construct_members(std::uint32_t record, const ast::Funct
             ok = default_initialize(std::move(slot), base.type, false, range, out, false) && ok;
         }
     }
+    // The bases are built: from here (members, body) the object is of this
+    // class, and virtual calls reach this class's overriders ([class.cdtor]).
+    // Not with virtual bases, whose place depends on the complete object.
+    if (info.has_header && info.virtual_base_offsets.empty()) {
+        out.push_back(stmt(range, BInitHeaders{LvalueCloner::clone(*self), record, true}));
+    }
     for (const FieldInfo& field : info.fields) {
         const ast::MemberInit* init = take(field.name);
         auto slot = field_of(*self, field);
@@ -671,6 +965,9 @@ bool InitializerBinder::construct_base(BExprPtr target, std::uint32_t base_recor
     ctors.reserve(info.constructors.size());
     for (const std::uint32_t id : info.constructors) {
         ctors.push_back(Callee{false, id});
+    }
+    for (const Callee& c : ctx_.templates->constructor_candidates(base_record, args, range)) {
+        ctors.push_back(c);
     }
     if (ctors.empty()) {
         ctx_.report(DiagnosticFactory::no_matching_function(range, info.name, ctx_.overloads->describe(args)));

@@ -17,6 +17,7 @@ using namespace cppi;
 using cppi_test::Calls;
 using cppi_test::compile_error;
 using cppi_test::output;
+using cppi_test::printed;
 using cppi_test::run;
 using cppi_test::runtime_error;
 using cppi_test::standard;
@@ -496,4 +497,192 @@ TEST(Language, FeatureGatingAppliesToEveryStatement) {
     EXPECT_EQ(
         output("int a[3] = {1, 2, 3}; int s = 0; for (int v : a) s += v; take_int(s);", standard(Standard::Cpp11)),
         Calls{"take_int(6)"});
+}
+
+TEST(Language, AVirtualCallInABaseConstructorCallsTheBase) {
+    // [class.cdtor]: while B's constructor runs, the object is a B.
+    EXPECT_EQ(printed(R"(
+        struct B { B() { std::cout << name(); } virtual ~B() {} virtual const char* name() { return "B"; } };
+        struct D : B { const char* name() override { return "D"; } };
+        D d;
+        std::cout << d.name();
+    )",
+                      standard(Standard::Cpp11)),
+              "BD");
+}
+
+TEST(Language, AVirtualCallInABaseDestructorCallsTheBase) {
+    // D's call first; then, once D's destructor has finished, the object is a B again.
+    EXPECT_EQ(printed(R"(
+        struct B { virtual ~B() { std::cout << name(); } virtual const char* name() { return "B"; } };
+        struct D : B { const char* name() override { return "D"; } };
+        {
+            D d;
+            std::cout << d.name();
+        }
+    )",
+                      standard(Standard::Cpp11)),
+              "DB");
+}
+
+TEST(Language, ACallThroughAMemberFunctionInTheConstructorAlsoCallsTheBase) {
+    EXPECT_EQ(printed(R"(
+        struct B {
+            B() { hello(); }
+            virtual ~B() {}
+            void hello() { std::cout << name(); }
+            virtual const char* name() { return "B"; }
+        };
+        struct D : B { const char* name() override { return "D"; } };
+        D d;
+    )",
+                      standard(Standard::Cpp11)),
+              "B");
+    // Each level of a chain sees its own class, constructing and destroying.
+    EXPECT_EQ(printed(R"(
+        struct A { A() { std::cout << name(); } virtual ~A() { std::cout << name(); } virtual const char* name() { return "A"; } };
+        struct B : A { B() { std::cout << name(); } ~B() { std::cout << name(); } const char* name() override { return "B"; } };
+        struct C : B { const char* name() override { return "C"; } };
+        {
+            C c;
+            std::cout << "|";
+        }
+    )",
+                      standard(Standard::Cpp11)),
+              "AB|BA");
+}
+
+TEST(Language, WithVirtualBasesTheCompleteObjectDispatchesToItsOverriders) {
+    // Base constructors make the object their own class while they run; once
+    // it is built, also with virtual bases, it is the complete class again.
+    EXPECT_EQ(printed(R"(
+        struct A { A() {} virtual ~A() {} virtual int f() { return 1; } };
+        struct B : virtual A { B() {} int f() override { return 2; } };
+        struct C : B { C() {} };
+        C c;
+        A& a = c;
+        A* p = new C();
+        std::cout << a.f() << c.f() << p->f();
+        delete p;
+    )",
+                      standard(Standard::Cpp11)),
+              "222");
+}
+
+TEST(Language, AValueInitializedEnumIsZero) {
+    // `E()` value-initializes: the enumerator whose value is 0.
+    EXPECT_EQ(printed(R"(
+        enum E { A, B };
+        enum class F { X, Y };
+        E e = E();
+        F f = F();
+        std::cout << (e == A) << (f == F::X);
+    )",
+                      standard(Standard::Cpp11)),
+              "11");
+}
+
+TEST(Language, AValueInitializedHostEnumIsItsFirstValue) {
+    // cppi-farm's std-map level: operator[] inserts Direction(), the host
+    // enum's first enumerator (the test host registers North, East, South, West).
+    EXPECT_EQ(printed(R"(
+        std::map<char, Direction> m;
+        std::cout << (m['x'] == North) << m.size();
+    )"),
+              "11");
+}
+
+TEST(Language, FunctionPointers) {
+    // A function's name (or &name) is a pointer to it: declared as
+    // `int (*f)(int)`, called as f(x) or (*f)(x), compared, passed to a
+    // function or to the algorithms (deduced as their predicate type).
+    EXPECT_EQ(printed(R"(
+        int twice(int x) { return 2 * x; }
+        int square(int x) { return x * x; }
+        bool even(int x) { return x % 2 == 0; }
+        bool greater(int a, int b) { return a > b; }
+        int apply(int (*f)(int), int v) { return f(v); }
+        int (*f)(int) = twice;
+        std::cout << f(3) << (*f)(4) << " ";
+        f = &square;
+        std::cout << f(3) << apply(twice, 5) << apply(square, 4) << " ";
+        auto g = twice;
+        std::cout << g(1) << (f == g) << (g == twice) << (f != nullptr) << " ";
+        std::vector<int> v;
+        v.push_back(1);
+        v.push_back(4);
+        v.push_back(2);
+        v.push_back(3);
+        std::cout << std::count_if(v.begin(), v.end(), even) << " ";
+        std::sort(v.begin(), v.end(), greater);
+        std::cout << v[0] << v[3];
+    )",
+                      standard(Standard::Cpp11)),
+              "68 91016 2011 2 41");
+    // The pointer's type picks among overloads; a null pointer cannot be called.
+    EXPECT_EQ(printed("int f(int x) { return x + 1; }\ndouble f(double x) { return x / 2; }\nint (*p)(int) = f;\n"
+                      "double (*q)(double) = &f;\nstd::cout << p(1) << q(3.0);\n",
+                      standard(Standard::Cpp11)),
+              "21.5");
+    auto d = runtime_error("int (*h)(int) = nullptr;\nint r = h(1);\n", standard(Standard::Cpp11));
+    EXPECT_EQ(d.code, DiagCode::NullDereference);
+    EXPECT_EQ(d.range.begin.line, 2);
+    EXPECT_EQ(compile_error("int twice(int x) { return 2 * x; }\ndouble (*q)(double) = twice;\n"),
+              DiagCode::CannotConvert);
+}
+
+TEST(Language, ConstructorTemplates) {
+    // A constructor can be a template: deduced from the arguments, used by direct
+    // initialization, implicit conversions, a class template's members and
+    // push_back. An ordinary constructor beats a template on a tie.
+    EXPECT_EQ(printed(R"(
+        struct Wrapper {
+            int v;
+            template <class T> Wrapper(T x) : v(x + 1) {}
+        };
+        struct Pt {
+            int x;
+            Pt(int a) : x(a) {}
+            template <class T> Pt(T a, T b) : x(a * 10 + b) {}
+        };
+        struct Call {
+            int r;
+            template <class F> Call(F f) : r(f(2)) {}
+        };
+        template <class T> struct Box {
+            T val;
+            template <class U> Box(U u) : val(u) {}
+        };
+        int show(Wrapper w) { return w.v; }
+        Wrapper w(3);
+        Wrapper w2 = 5;
+        Wrapper c = w;
+        std::cout << w.v << w2.v << c.v << show(7) << " ";
+        Pt p(1, 2);
+        Pt q(7);
+        std::cout << p.x << q.x << " ";
+        Call k([](int x) { return x * 5; });
+        std::cout << k.r << " ";
+        Box<double> b(3);
+        std::cout << b.val << " ";
+        std::vector<Wrapper> vs;
+        vs.push_back(9);
+        vs.push_back(Wrapper(1));
+        std::cout << vs[0].v << vs[1].v;
+    )",
+                      standard(Standard::Cpp14)),
+              "4648 127 10 3 102");
+}
+
+TEST(Language, FunctionPointersCanReturnClasses) {
+    EXPECT_EQ(printed(R"(
+        struct P { int x; };
+        P make(int v) { P p; p.x = v; return p; }
+        P (*f)(int) = make;
+        std::cout << f(5).x << " ";
+        P q = f(7);
+        std::cout << q.x;
+    )",
+                      standard(Standard::Cpp11)),
+              "5 7");
 }

@@ -57,6 +57,8 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | E0238 | `constraints-not-satisfied` | `function`, `[constraint]` | The template arguments do not satisfy a concept (`Number<std::string>`) or a `requires` clause (`constraint` = `requires-clause`). |
 | E0239 | `no-operator` | `op`, `type` | An operator is used on a class that has none for those operands (`a < b` with `struct P { int x; };`, or `std::sort` of a `std::vector<P>` without a comparator). `op` is `<`, `==`..., `type` the class. Inside the standard library it is reported at the player's call, followed by E0240. |
 | E0240 | `instantiated-from` | `function` | *Note* after an error inside the standard library: the library function (`std::sort<pair<int, int>>`) the player's code at this location used. |
+| E0241 | `narrowing` | `from`, `to` | A conversion inside braces that may lose information, which C++11 forbids: `int{2.5}`, `int a[] = {2.5};`, `std::vector<int> v = {1.5};`. From a floating type to an integer always, and between integer types or to a floating type unless the value is a constant that fits. Not before C++11. |
+| E0242 | `designator-order` | `member` | A C++20 designated initializer out of place: `{.y = 2, .x = 5}` (not in declaration order), `{.x = 1, .x = 2}` (repeated), or `{.x = 1, 2}` (some elements designated and some not). `member` is the designator. A designator naming no member is E0218. |
 
 ## 3xx · Language features
 
@@ -66,6 +68,7 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | E0301 | `feature-requires-standard` | `feature`, `required`, `current` | The feature belongs to a later standard. |
 | E0302 | `feature-not-implemented` | `feature` | Allowed, but this version of the interpreter cannot run it yet. |
 | E0303 | `unsupported-syntax` | `construct` | A construct that does not match any known feature. |
+| E0304 | `library-requires-standard` | `name`, `standard` | A library name (or a member of a library class, as `std::optional::and_then`) that a later standard introduced: `std::optional` at C++14. `name` includes `std::`; `standard` is the one that introduced it. |
 
 `feature` is a stable feature key:
 
@@ -87,10 +90,12 @@ Each diagnostic also carries a severity (`error`, `warning`, `note`) and a range
 | `enums` | C++98 | | `coroutines` | C++20 |
 | `pointers` | C++98 | | `modules` | C++20 |
 | `references` | C++98 | | `delegating-constructors` | C++11 |
-| `templates` | C++98 | | | |
-| `namespaces` | C++98 | | | |
-| `exceptions` | C++98 | | | |
-| `preprocessor` | C++98 | | | |
+| `templates` | C++98 | | `initializer-lists` | C++11 |
+| `namespaces` | C++98 | | `designated-initializers` | C++20 |
+| `exceptions` | C++98 | | `three-way-comparison` | C++20 |
+| `preprocessor` | C++98 | | `consteval` | C++20 |
+| | | | `lambda-copies-this` | C++17 |
+| | | | `multidimensional-subscript` | C++23 |
 
 `concepts` also covers constrained template parameters (`template <Number T>`) and `auto` parameters of functions (`void f(auto x)`), which are C++20 abbreviated templates. `strings` (the old feature key for string literals) and `preprocessor` (`#define` and friends) are recognized but not implemented yet; `#include` is accepted and ignored.
 
@@ -126,7 +131,7 @@ In real C++ these would silently corrupt the program or crash it; here they stop
 | E0510 | `memory-leak` | `count` | *Warning* at the end of the run: `count` blocks from `new` were never deleted. |
 | E0511 | `pure-virtual-call` | `function` | A pure virtual function is called (from a constructor or destructor). |
 | E0512 | `invalid-pointer` | — | Using a pointer outside the object it points into, or to a local variable of a function that already returned. |
-| E0513 | `bad-access` | `what` | `*opt` on an empty `std::optional` (`what` = `std::optional`). `opt.value()` throws `std::bad_optional_access` instead. |
+| E0513 | `bad-access` | `what` | `*opt` on an empty `std::optional` (`what` = `std::optional`), or `*e` on a `std::expected` holding an error (`what` = `std::expected`). `opt.value()` and `e.value()` throw `std::bad_optional_access` and `std::bad_expected_access` instead. |
 
 ## Translation example
 
@@ -136,4 +141,5 @@ Templates from `tools/cppi-run/EnglishCatalog.cpp` and `tools/cppi-run/SpanishCa
 |---|---|---|
 | `feature-locked` | Aún no desbloqueaste {feature} | You haven't unlocked {feature} yet |
 | `feature-requires-standard` | Para usar {feature} necesitas {required} (estás usando {current}) | Using {feature} requires {required} (you are using {current}) |
+| `library-requires-standard` | '{name}' es de {standard}; este programa se compila con un estándar anterior | '{name}' is from {standard}; this program is compiled as an earlier standard |
 | `unknown-function` | No existe ninguna función llamada '{name}' | There is no function called '{name}' |

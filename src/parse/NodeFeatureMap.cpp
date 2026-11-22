@@ -183,13 +183,8 @@ std::optional<Feature> NodeFeatureMap::feature_of(TSNode node, std::string_view 
         }
         return Feature::Auto;
     }
-    if (kind == "parameter_declaration") {
-        // `template <Number T>`: a type parameter constrained by a concept.
-        const TSNode parent = ts_node_parent(node);
-        if (!ts_node_is_null(parent) && kind_of(parent) == "template_parameter_list") {
-            return Feature::Concepts;
-        }
-    }
+    // `template <Number T>` (a concept, C++20) and `template <int N>` (a non-type
+    // parameter, C++98) look the same here: analysis checks the concept's standard.
     if (kind == "null") {  // newer grammars: `nullptr` and `NULL` share one node kind
         return text_of(node, source) == "nullptr" ? std::optional<Feature>(Feature::Nullptr) : std::nullopt;
     }

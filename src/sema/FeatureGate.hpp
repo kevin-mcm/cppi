@@ -33,6 +33,10 @@ public:
     /// reported as "not implemented yet" when the standard and the game allow it.
     [[nodiscard]] static bool is_implemented(Feature feature) noexcept;
 
+    /// True if the selected standard includes `feature` (nothing reported):
+    /// rules of a standard, such as C++11's narrowing, ask this.
+    [[nodiscard]] bool standard_allows(Feature feature) const noexcept;
+
     /// True if `feature` is usable; otherwise reports why and returns false.
     bool allow(Feature feature, SourceRange range);
 
@@ -50,9 +54,6 @@ public:
     [[nodiscard]] bool suspended() const noexcept { return suspended_; }
 
 private:
-    /// True if the selected standard includes `feature`.
-    [[nodiscard]] bool standard_allows(Feature feature) const noexcept;
-
     /// The level's rules.
     const Options& options_;
     /// Where rejections go.

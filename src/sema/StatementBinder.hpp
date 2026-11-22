@@ -53,6 +53,14 @@ private:
     BStmtPtr bind_substatement(const ast::Stmt* stmt, SourceRange range);
     /// An expression statement (destroying its temporaries).
     void bind_expression(const ast::ExprStmt& s, SourceRange range, std::vector<BStmt>& out);
+    /// The prelude's in-place operations on raw storage (std::vector):
+    /// `__cppi_construct(p, value)` copies `value` into `*p`,
+    /// `__cppi_construct_moved(p, value)` moves it (or copies, without a move
+    /// constructor), and `__cppi_destroy(p)` runs `~T()` and leaves `*p`
+    /// uninitialized. True if `call` was one of them.
+    bool bind_in_place(const ast::CallExpr& call, SourceRange range, std::vector<BStmt>& out);
+    /// The range of `for (x : {1, 2, 3})`: a temporary std::initializer_list.
+    BExprPtr braced_range(const ast::InitList& list, SourceRange range);
     /// Condition with an optional declaration; declarations go into `pre`.
     std::optional<BExpr> bind_condition(const ast::Condition& c, std::vector<BStmt>& pre);
     /// `if` / `if constexpr`.

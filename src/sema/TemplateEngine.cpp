@@ -21,14 +21,35 @@ namespace cppi::sema {
 
 using detail::DiagnosticFactory;
 
+namespace {
+
+/// The arguments of a call, as the deduction reads them.
+std::vector<const BExpr*> pointers(const std::vector<BExprPtr>& args) {
+    std::vector<const BExpr*> out;
+    out.reserve(args.size());
+    for (const auto& arg : args) {
+        out.push_back(arg.get());
+    }
+    return out;
+}
+
+}  // namespace
+
 template <typename Body>
 auto TemplateEngine::in_template_scope(const TemplateInfo& t, const std::vector<TypeRef>& args, Body body) {
     auto previous = ctx_.symbols.isolate(t.home);
     ctx_.symbols.push(Scope::Kind::Block);
     for (std::size_t i = 0; i < t.params.size() && i < args.size(); ++i) {
         Symbol param;
-        param.kind = SymbolKind::Type;
-        param.type = args[i];
+        if (ctx_.types.kind(args[i]) == TypeKind::TemplateValue) {
+            // A non-type parameter: `N` is a constant inside the template.
+            param.kind = SymbolKind::Constant;
+            param.type = ctx_.types.info(args[i]).target;
+            param.value = ctx_.types.template_value_of(args[i]);
+        } else {
+            param.kind = SymbolKind::Type;
+            param.type = args[i];
+        }
         ctx_.symbols.current().add(t.params[i], param);
     }
     auto result = body();
@@ -37,8 +58,56 @@ auto TemplateEngine::in_template_scope(const TemplateInfo& t, const std::vector<
     return result;
 }
 
+std::optional<TypeRef> TemplateEngine::template_arg(const TemplateInfo& t, std::size_t index,
+                                                    const ast::TypeDesc& desc) {
+    const bool value_param = index < t.value_types.size() && t.value_types[index] != nullptr;
+    if (!value_param) {
+        if (desc.value) {
+            ctx_.report(
+                DiagnosticFactory::unsupported_syntax(desc.spec.range, "a value for a type template parameter"));
+            return std::nullopt;
+        }
+        auto resolved = ctx_.type_resolver->resolve(desc);
+        if (!resolved || resolved->is_auto) {
+            return std::nullopt;
+        }
+        return resolved->type;
+    }
+    // A value: the expression, or a name the parser read as a type (`N`, a constant).
+    std::optional<std::int64_t> value;
+    if (desc.value) {
+        if (auto bound = ctx_.expressions->bind(*desc.value)) {
+            value = ctx_.constants.integer(*bound);
+        } else {
+            return std::nullopt;
+        }
+    } else if (desc.spec.template_args.empty() && desc.declarator.parts.empty()) {
+        // `N` (a non-type parameter or an enumerator) or `K` (a constexpr variable).
+        const Symbol* symbol = desc.spec.scope.empty() ? ctx_.symbols.lookup(desc.spec.name)
+                                                       : ctx_.symbols.lookup_qualified(desc.spec.scope, desc.spec.name);
+        if (symbol != nullptr && symbol->kind == SymbolKind::Constant) {
+            value = symbol->value;
+        } else if (symbol != nullptr && symbol->kind == SymbolKind::Variable) {
+            value = symbol->constant;
+        } else {
+            ctx_.report(DiagnosticFactory::unknown_identifier(desc.spec.range, desc.spec.name, std::nullopt));
+            return std::nullopt;
+        }
+    }
+    if (!value) {
+        ctx_.report(DiagnosticFactory::not_constant(desc.spec.range));
+        return std::nullopt;
+    }
+    const auto type = ctx_.type_resolver->resolve_spec(*t.value_types[index]);
+    if (!type) {
+        return std::nullopt;
+    }
+    return ctx_.types.template_value(type->type, *value);
+}
+
 std::string TemplateEngine::display(const TemplateInfo& t, const std::vector<TypeRef>& args) const {
-    std::string out = t.name + "<";
+    // `operator< <P, int>`, not `operator<<P, int>`, which reads as operator<<.
+    std::string out = t.name + (t.name.ends_with('<') ? " <" : "<");
     for (std::size_t i = 0; i < args.size(); ++i) {
         out += (i > 0 ? ", " : "") + ctx_.types.name(args[i]);
     }
@@ -90,7 +159,11 @@ bool TemplateEngine::declare(const ast::TemplateDecl& decl, SourceRange range) {
         ctx_.report(DiagnosticFactory::redefinition(range, info.name));
         return false;
     }
-    if (existing != nullptr && existing->kind != SymbolKind::Template) {
+    // A function template may share its name with ordinary functions
+    // (`void f(int); template <class T> void f(T);`): both are candidates.
+    const bool joins_functions =
+        existing != nullptr && existing->kind == SymbolKind::Functions && !info.is_class && !info.is_concept;
+    if (existing != nullptr && existing->kind != SymbolKind::Template && !joins_functions) {
         if (existing->kind != SymbolKind::Poisoned) {
             ctx_.report(DiagnosticFactory::redefinition(range, info.name));
         }
@@ -132,8 +205,10 @@ std::optional<std::uint32_t> TemplateEngine::instantiate_function(std::uint32_t 
     }
     const std::size_t errors_before = ctx_.sink.dropped_errors();
     auto result = in_template_scope(t, args, [&] {
-        return ctx_.declarations->instantiate_function(decl, display(t, args),
-                                                       [&](std::uint32_t fid) { t.functions[args] = fid; });
+        return ctx_.declarations->instantiate_function(decl, display(t, args), [&](std::uint32_t fid) {
+            t.functions[args] = fid;
+            ctx_.functions[fid].template_id = id;  // an ordinary function beats it on a tie
+        });
     });
     forget_if_failed(t.functions, args, errors_before);
     return result;
@@ -168,11 +243,60 @@ std::optional<TypeRef> TemplateEngine::instantiate_class(std::uint32_t id, const
         self.kind = SymbolKind::Type;
         self.type = type;
         ctx_.symbols.current().add(def.name, self);
+        // Member bodies are bound on first use ([temp.inst]): see define_if_pending.
+        std::vector<std::pair<std::uint32_t, const ast::FunctionDecl*>> deferred;
+        auto* const outer = ctx_.declarations->deferred_bodies;
+        ctx_.declarations->deferred_bodies = &deferred;
         ctx_.declarations->bind_record(def, def.name_range);
+        ctx_.declarations->deferred_bodies = outer;
+        for (const auto& [function, member] : deferred) {
+            pending_[function] = PendingMember{id, args, type, member};
+        }
         return type;
     });
     forget_if_failed(t.classes, args, errors_before);
     return result;
+}
+
+bool TemplateEngine::is_library_template(std::uint32_t id, std::string_view name) const {
+    return id < templates_.size() && templates_[id].library && templates_[id].name == name;
+}
+
+std::optional<TypeRef> TemplateEngine::instantiate_library(std::string_view name, const std::vector<TypeRef>& args,
+                                                           SourceRange range) {
+    Symbol* symbol = ctx_.symbols.lookup_qualified({"std"}, std::string(name));
+    if (symbol == nullptr || symbol->kind != SymbolKind::Template || symbol->templates.empty() ||
+        !is_library_template(symbol->templates.front(), name) || !templates_[symbol->templates.front()].is_class) {
+        return std::nullopt;
+    }
+    return instantiate_class(symbol->templates.front(), args, range);
+}
+
+void TemplateEngine::define_if_pending(std::uint32_t function, SourceRange site) {
+    // During a trial (muted) the body waits for a real use, which reports its errors.
+    if (ctx_.sink.muted()) {
+        return;
+    }
+    auto it = pending_.find(function);
+    if (it == pending_.end()) {
+        return;
+    }
+    const PendingMember member = std::move(it->second);
+    pending_.erase(it);
+    const TemplateInfo& t = templates_[member.template_id];
+    const auto& def = std::get<ast::RecordDef>(t.inner->node);
+    std::optional<LibraryScope> library;
+    if (t.library) {
+        library.emplace(ctx_, site, "std::" + display(t, member.args));
+    }
+    in_template_scope(t, member.args, [&] {
+        Symbol self;  // the injected class name, as when the class was instantiated
+        self.kind = SymbolKind::Type;
+        self.type = member.type;
+        ctx_.symbols.current().add(def.name, self);
+        ctx_.declarations->define_body(function, member.decl);
+        return true;
+    });
 }
 
 std::optional<TypeRef> TemplateEngine::instantiate_type(const ast::TypeSpec& spec) {
@@ -181,8 +305,42 @@ std::optional<TypeRef> TemplateEngine::instantiate_type(const ast::TypeSpec& spe
     return instantiate_named(symbol, spec.template_args, spec.name, spec.range);
 }
 
+std::optional<TypeRef> TemplateEngine::call_result(TypeRef callable, TypeRef argument, SourceRange range) {
+    const TypeTable& types = ctx_.types;
+    if (types.is_function_pointer(callable)) {
+        return types.signature(types.info(callable).target).first;
+    }
+    if (!types.is_record(callable)) {
+        ctx_.report(DiagnosticFactory::not_callable(range, types.name(callable)));
+        return std::nullopt;
+    }
+    BExpr probe;
+    probe.type = argument;
+    probe.lvalue = true;
+    probe.node = BLoad{};
+    std::vector<BExprPtr> args;
+    args.push_back(std::make_unique<BExpr>(std::move(probe)));
+    const std::uint32_t record = types.info(callable).decl;
+    std::vector<Callee> candidates;
+    if (const auto it = types.record_at(record).methods.find("operator()");
+        it != types.record_at(record).methods.end()) {
+        for (const std::uint32_t id : it->second) {
+            candidates.push_back(Callee{false, id});
+        }
+    }
+    for (const Callee& c : member_candidates(record, "operator()", {}, args, range)) {
+        candidates.push_back(c);
+    }
+    auto chosen = ctx_.overloads->resolve("operator()", candidates, args, range);
+    if (!chosen) {
+        return std::nullopt;
+    }
+    return ctx_.functions[chosen->id].return_type;
+}
+
 std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const std::vector<ast::TypeDesc>& descs,
                                                          const std::string& name, SourceRange range) {
+    ctx_.allow_library_name(symbol, range, name);
     std::optional<std::uint32_t> template_id;
     if (symbol != nullptr && symbol->kind == SymbolKind::Template && templates_[symbol->templates.front()].is_class) {
         template_id = symbol->templates.front();
@@ -199,14 +357,31 @@ std::optional<TypeRef> TemplateEngine::instantiate_named(Symbol* symbol, const s
         }
         return std::nullopt;
     }
-    const std::uint32_t id = *template_id;
+    std::uint32_t id = *template_id;
     std::vector<TypeRef> args;
     for (const auto& desc : descs) {
-        auto resolved = ctx_.type_resolver->resolve(desc);
-        if (!resolved || resolved->is_auto) {
+        auto resolved = template_arg(templates_[id], args.size(), desc);
+        if (!resolved) {
             return std::nullopt;
         }
-        args.push_back(resolved->type);
+        args.push_back(*resolved);
+    }
+    // `__call_result<F, A>` names what calling an `F` with an `A` returns (the prelude has no decltype).
+    if (is_library_template(id, "__call_result") && args.size() == 2) {
+        return call_result(args[0], args[1], range);
+    }
+    // `std::function<int(int)>` is the prelude's __function<int, int>: the
+    // function type's result and parameters (up to three) as arguments.
+    if (is_library_template(id, "function") && args.size() == 1 && ctx_.types.is_function(args.front())) {
+        const auto signature = ctx_.types.signature(args.front());  // copy: instantiating adds types
+        const Symbol* inner = ctx_.symbols.lookup_qualified({"std"}, "__function");
+        if (inner == nullptr || inner->kind != SymbolKind::Template || signature.second.size() > 3) {
+            ctx_.report(DiagnosticFactory::unsupported_syntax(range, "std::function with more than three parameters"));
+            return std::nullopt;
+        }
+        id = inner->templates.front();
+        args = {signature.first};
+        args.insert(args.end(), signature.second.begin(), signature.second.end());
     }
     while (args.size() < templates_[id].params.size()) {
         auto fallback = default_arg(templates_[id], args);
@@ -307,7 +482,7 @@ std::optional<TypeRef> TemplateEngine::default_arg(const TemplateInfo& t, const 
 
 std::optional<std::vector<TypeRef>> TemplateEngine::deduce_all(const TemplateInfo& t, const ast::FunctionDecl& decl,
                                                                const std::vector<TypeRef>& explicit_args,
-                                                               const std::vector<BExprPtr>& args) {
+                                                               const std::vector<const BExpr*>& args) {
     if (explicit_args.size() > t.params.size() || args.size() > decl.params.size()) {
         return std::nullopt;
     }
@@ -445,7 +620,44 @@ void TemplateEngine::declare_member(std::uint32_t record, const ast::MethodTempl
     info.library = ctx_.library_depth > 0;
     templates_.push_back(std::move(info));
     const auto id = static_cast<std::uint32_t>(templates_.size() - 1);
-    ctx_.types.record_at(record).method_templates[templates_.back().name].push_back(id);
+    // Constructor templates share one key, whatever the class (instances are named after it).
+    const std::string key = method.decl.is_constructor ? std::string(kConstructorKey) : templates_.back().name;
+    ctx_.types.record_at(record).method_templates[key].push_back(id);
+    if (method.decl.is_constructor) {
+        ctx_.types.record_at(record).user_constructors = true;
+    }
+}
+
+std::vector<Callee> TemplateEngine::constructor_candidates(std::uint32_t record, const std::vector<BExprPtr>& args,
+                                                           SourceRange range) {
+    return constructor_candidates(record, pointers(args), range);
+}
+
+std::vector<Callee> TemplateEngine::constructor_candidates(std::uint32_t record, const std::vector<const BExpr*>& args,
+                                                           SourceRange range) {
+    std::vector<Callee> out;
+    const RecordInfo& info = ctx_.types.record_at(record);
+    const auto it = info.method_templates.find(kConstructorKey);
+    if (it == info.method_templates.end()) {
+        return out;
+    }
+    if (args.size() == 1 && ctx_.types.is_record(args.front()->type) &&
+        (args.front()->type == ctx_.types.record_type(record) ||
+         ctx_.hierarchy.find_base(ctx_.types.info(args.front()->type).decl, record).has_value())) {
+        return out;  // copying: the class's own copy constructor
+    }
+    const std::vector<std::uint32_t> candidates = it->second;  // copy: instantiating may add templates
+    for (const std::uint32_t id : candidates) {
+        auto type_args = deduce_all(templates_[id], *templates_[id].method, {}, args);
+        if (!type_args || unsatisfied(templates_[id], *type_args, range)) {
+            continue;
+        }
+        if (auto fid = instantiate_method(id, *type_args, range)) {
+            ctx_.functions[*fid].template_id = id;  // an ordinary constructor beats it on a tie
+            out.push_back(Callee{false, *fid});
+        }
+    }
+    return out;
 }
 
 const std::vector<std::uint32_t>* TemplateEngine::member_templates(std::uint32_t record, std::string_view name) const {
@@ -464,8 +676,41 @@ const std::vector<std::uint32_t>* TemplateEngine::member_templates(std::uint32_t
     return nullptr;
 }
 
+std::string_view TemplateEngine::library_class_name(TypeRef type) const {
+    const auto from = origin(type);
+    if (!from || !templates_[from->first].library) {
+        return {};
+    }
+    return templates_[from->first].name;
+}
+
 bool TemplateEngine::has_member_template(std::uint32_t record, std::string_view name) const {
     return member_templates(record, name) != nullptr;
+}
+
+std::vector<Callee> TemplateEngine::function_candidates(const Symbol& symbol, const std::vector<const BExpr*>& args,
+                                                        SourceRange range) {
+    std::vector<Callee> out;
+    const std::vector<std::uint32_t> ids = symbol.templates;  // copy: instantiating may add templates
+    for (const std::uint32_t id : ids) {
+        if (templates_[id].is_class || templates_[id].is_concept) {
+            continue;
+        }
+        const auto& decl = std::get<ast::FunctionDef>(templates_[id].inner->node).decl;
+        auto type_args = deduce_all(templates_[id], decl, {}, args);
+        if (!type_args || unsatisfied(templates_[id], *type_args, range)) {
+            continue;
+        }
+        if (auto fid = instantiate_function(id, *type_args, range)) {
+            out.push_back(Callee{false, *fid});
+        }
+    }
+    return out;
+}
+
+bool TemplateEngine::function_templates_only(const Symbol& symbol) const {
+    return std::none_of(symbol.templates.begin(), symbol.templates.end(),
+                        [&](std::uint32_t id) { return templates_[id].is_class || templates_[id].is_concept; });
 }
 
 std::vector<Callee> TemplateEngine::member_candidates(std::uint32_t record, const std::string& name,
@@ -486,7 +731,7 @@ std::vector<Callee> TemplateEngine::member_candidates(std::uint32_t record, cons
     }
     const std::vector<std::uint32_t> candidates = *ids;  // copy: instantiating may add templates
     for (const std::uint32_t id : candidates) {
-        auto type_args = deduce_all(templates_[id], *templates_[id].method, explicit_args, args);
+        auto type_args = deduce_all(templates_[id], *templates_[id].method, explicit_args, pointers(args));
         if (!type_args || unsatisfied(templates_[id], *type_args, range)) {
             continue;
         }
@@ -570,6 +815,7 @@ void TemplateEngine::forget_if_failed(Cache& cache, const Key& key, std::size_t 
 bool TemplateEngine::collect_constraints(TemplateInfo& info, const std::vector<ast::TemplateParam>& params,
                                          const ast::Expr* requires_clause, const ast::Expr* trailing,
                                          SourceRange range) {
+    info.value_types.assign(params.size(), nullptr);
     for (std::size_t i = 0; i < params.size(); ++i) {
         const auto& constraint = params[i].constraint;
         if (!constraint) {
@@ -577,8 +823,11 @@ bool TemplateEngine::collect_constraints(TemplateInfo& info, const std::vector<a
         }
         const ast::TypeSpec& spec = *constraint;
         if (!find_concept(spec.scope, spec.name)) {
-            // `template <int N>` looks like `template <Number T>`.
-            ctx_.report(DiagnosticFactory::unsupported_syntax(params[i].range, "non-type template parameter"));
+            // `template <int N>` looks like `template <Number T>`: a non-type parameter.
+            info.value_types[i] = &spec;
+            continue;
+        }
+        if (!ctx_.features.allow(Feature::Concepts, params[i].range)) {
             return false;
         }
         info.constrained.emplace_back(i, &spec);
@@ -731,8 +980,18 @@ BExprPtr TemplateEngine::call(const ast::CallExpr& call, std::vector<BExprPtr> a
             return ExpressionBinder::constant(TypeTable::kBool, *answer ? 1 : 0, range);
         }
     }
+    // The prelude's raw storage (std::vector): `__cppi_allocate<T>(n)`, not constructed.
+    if (call.callee == "__cppi_allocate" && call.scope.empty() && call.template_args.size() == 1 && args.size() == 1 &&
+        ctx_.library_depth > 0) {
+        auto resolved = ctx_.type_resolver->resolve(call.template_args.front());
+        if (!resolved || resolved->is_auto) {
+            return nullptr;
+        }
+        return ctx_.expressions->allocate(resolved->type, std::move(args.front()), range);
+    }
     Symbol* symbol =
         call.scope.empty() ? ctx_.symbols.lookup(call.callee) : ctx_.symbols.lookup_qualified(call.scope, call.callee);
+    ctx_.allow_library_name(symbol, call.callee_range, call.callee);
     // Member function templates: `Factory::make<int>()`, or `get<int>(x)` inside the class.
     std::optional<std::uint32_t> member_record;
     if (call.scope.size() == 1 && symbol == nullptr) {
@@ -773,7 +1032,11 @@ BExprPtr TemplateEngine::call(const ast::CallExpr& call, std::vector<BExprPtr> a
         }
         return ctx_.expressions->construct_temporary(*type, std::move(args), range);
     }
-    if (symbol == nullptr || symbol->kind != SymbolKind::Template) {
+    // `f<int>(x)` names only the templates of `f`, also when ordinary functions share the name.
+    const bool has_templates =
+        symbol != nullptr &&
+        (symbol->kind == SymbolKind::Template || (symbol->kind == SymbolKind::Functions && !symbol->templates.empty()));
+    if (!has_templates) {
         if (symbol == nullptr || symbol->kind != SymbolKind::Poisoned) {
             ctx_.report(DiagnosticFactory::unknown_function(call.callee_range, call.callee, std::nullopt));
         }
@@ -781,11 +1044,12 @@ BExprPtr TemplateEngine::call(const ast::CallExpr& call, std::vector<BExprPtr> a
     }
     std::vector<TypeRef> explicit_args;
     for (const auto& desc : call.template_args) {
-        auto resolved = ctx_.type_resolver->resolve(desc);
-        if (!resolved || resolved->is_auto) {
+        // `twice<3>()`: read against the first template's parameters (types or values).
+        auto resolved = template_arg(templates_[symbol->templates.front()], explicit_args.size(), desc);
+        if (!resolved) {
             return nullptr;
         }
-        explicit_args.push_back(resolved->type);
+        explicit_args.push_back(*resolved);
     }
 
     std::vector<Callee> candidates;
@@ -797,7 +1061,7 @@ BExprPtr TemplateEngine::call(const ast::CallExpr& call, std::vector<BExprPtr> a
             continue;
         }
         const auto& decl = std::get<ast::FunctionDef>(t.inner->node).decl;
-        auto type_args = deduce_all(t, decl, explicit_args, args);
+        auto type_args = deduce_all(t, decl, explicit_args, pointers(args));
         if (!type_args) {
             continue;
         }

@@ -49,6 +49,8 @@ struct TypeSpec {
     bool is_static = false;
     /// `constexpr` given.
     bool is_constexpr = false;
+    /// `consteval` (C++20): also constexpr, and every call is evaluated at compile time.
+    bool is_consteval = false;
     bool is_inline = false;                     ///< `inline static int n = 0;` (C++17)
     std::vector<std::string> scope;             ///< `Shape::Kind` -> {"Shape"}
     std::shared_ptr<TypeSpec> auto_constraint;  ///< `std::integral auto` (C++20): the concept
@@ -56,14 +58,16 @@ struct TypeSpec {
 };
 
 /// What one DeclaratorPart adds: `*`, `&`, `&&` or `[n]`.
-enum class DeclaratorKind : std::uint8_t { Pointer, Reference, RvalueReference, Array };
+/// Function: `(int)` in `int (*f)(int)`, a pointer to a function (`params`).
+enum class DeclaratorKind : std::uint8_t { Pointer, Reference, RvalueReference, Array, Function };
 
 /// One step of a declarator, from the outside in: `int* a[3]` is
 /// Pointer applied to Array(3)... see TypeResolver for the exact order.
 struct DeclaratorPart {
     DeclaratorKind kind = DeclaratorKind::Pointer;
-    ExprPtr size;           ///< arrays only; null for `int a[]`
-    bool is_const = false;  ///< `int* const p`
+    ExprPtr size;                  ///< arrays only; null for `int a[]`
+    bool is_const = false;         ///< `int* const p`
+    std::vector<TypeDesc> params;  ///< Function only: the parameter types
     /// Where this part is written.
     SourceRange range;
 };
@@ -84,6 +88,9 @@ struct TypeDesc {
     TypeSpec spec;
     /// Pointers, references and arrays applied to it (no name).
     Declarator declarator;
+    /// A non-type template argument written as an expression (`3` in
+    /// `std::array<int, 3>`); `spec` is then empty.
+    std::shared_ptr<Expr> value;
 };
 
 // --- Operators ------------------------------------------------------------------
@@ -132,6 +139,8 @@ enum class BinaryOp : std::uint8_t {
     Ge,
     /// `,`
     Comma,
+    /// `<=>` (C++20)
+    ThreeWay,
 };
 
 // --- Expression nodes -------------------------------------------------------------
@@ -275,6 +284,8 @@ struct SubscriptExpr {
     ExprPtr base;
     /// The index.
     ExprPtr index;
+    /// The other indices of `m[2, 3]` (C++23; before it, a comma expression).
+    std::vector<ExprPtr> more;
 };
 
 /// Member access: `obj.member` or `ptr->member`.
@@ -291,7 +302,8 @@ struct MemberExpr {
 };
 
 /// `(T)x`, `static_cast<T>(x)` or `T(x)`.
-enum class CastKind : std::uint8_t { CStyle, Static, Functional };
+/// `List`: `T{...}`, direct-list-initialization (the operand is an InitList, C++11).
+enum class CastKind : std::uint8_t { CStyle, Static, Functional, List };
 
 /// An explicit type conversion.
 struct CastExpr {
@@ -314,6 +326,9 @@ struct SizeofExpr {
 struct InitList {
     /// The elements, in order.
     std::vector<Expr> elements;
+    /// C++20 designated initializers `{.x = 5, .y = 2}`: the member each element
+    /// names ("" for one without a designator); empty if no element has one.
+    std::vector<std::string> designators;
 };
 
 /// `this`.
@@ -347,6 +362,8 @@ struct LambdaExpr {
     char default_capture = 0;  ///< 0, '=' or '&'
     /// `[this]` given.
     bool captures_this = false;
+    /// `[*this]` given (C++17): the closure holds a copy of the object.
+    bool copies_this = false;
     /// `mutable` given.
     bool is_mutable = false;
     bool has_return_type = false;  ///< `-> T` given; otherwise deduced from the returns

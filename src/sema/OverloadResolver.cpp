@@ -7,8 +7,12 @@
 #include "sema/OverloadResolver.hpp"
 
 #include "sema/ExpressionBinder.hpp"
+#include "sema/InitializerBinder.hpp"
 #include "sema/Intrinsics.hpp"
+#include "sema/TemplateEngine.hpp"
 #include "support/DiagnosticFactory.hpp"
+
+#include "ast/Expr.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -107,7 +111,7 @@ bool OverloadResolver::converts_by_constructor(const BExpr& arg, TypeRef record)
     if (!types.is_record(record) || arg.type == record || types.is_void(arg.type)) {
         return false;
     }
-    return std::ranges::any_of(types.record(record).constructors, [&](std::uint32_t id) {
+    const auto converts = [&](std::uint32_t id) {
         const FunctionInfo& fn = ctx_.functions[id];
         if (fn.params.empty() || fn.access != ast::Access::Public) {
             return false;
@@ -123,11 +127,46 @@ bool OverloadResolver::converts_by_constructor(const BExpr& arg, TypeRef record)
             return false;
         }
         return rank(arg, p) != ConversionRank::None;
-    });
+    };
+    if (std::ranges::any_of(types.record(record).constructors, converts)) {
+        return true;
+    }
+    // A constructor template: its instance for this argument. Not muted: a body bound during a
+    // trial would leave the class templates it uses without their members (define_if_pending).
+    const std::vector<const BExpr*> args{&arg};
+    const auto instances = ctx_.templates->constructor_candidates(types.info(record).decl, args, arg.range);
+    return std::ranges::any_of(instances,
+                               [&](const Callee& c) { return !ctx_.functions[c.id].is_explicit && converts(c.id); });
+}
+
+ConversionRank OverloadResolver::braced_rank(const ast::InitList& list, TypeRef param) const {
+    const TypeTable& types = ctx_.types;
+    TypeRef target = param;
+    if (types.is_reference(param)) {
+        const TypeInfo& ref = types.info(param);
+        // A braced list makes a temporary: it binds const T& and T&&, not T&.
+        if (!ref.target_const && !types.is_rvalue_reference(param)) {
+            return ConversionRank::None;
+        }
+        target = ref.target;
+    }
+    if (ctx_.initializers->initializer_list_element(target)) {
+        return ConversionRank::Exact;  // `v = {4, 5}` prefers operator=(initializer_list<T>)
+    }
+    if (types.is_record(target)) {
+        return ConversionRank::UserDefined;  // a constructor, or the aggregate's members
+    }
+    if (types.is_scalar(target) && list.elements.size() <= 1) {
+        return ConversionRank::Conversion;
+    }
+    return ConversionRank::None;
 }
 
 ConversionRank OverloadResolver::rank(const BExpr& arg, TypeRef param) const {
     const TypeTable& types = ctx_.types;
+    if (arg.braced != nullptr) {
+        return braced_rank(*arg.braced, param);
+    }
     if (types.is_error(arg.type) || types.is_error(param)) {
         return ConversionRank::Exact;
     }
@@ -285,7 +324,10 @@ std::optional<Callee> OverloadResolver::choose(const std::string& name, const st
         ctx_.report(DiagnosticFactory::no_matching_function(call_range, name, describe(args)));
         return std::nullopt;
     }
-    auto better = [](const Viable& a, const Viable& b) {
+    const auto from_template = [&](const Callee& c) {
+        return !c.host && !c.intrinsic && ctx_.functions[c.id].template_id.has_value();
+    };
+    auto better = [&](const Viable& a, const Viable& b) {
         bool strictly = false;
         for (std::size_t i = 0; i < a.ranks.size(); ++i) {
             if (a.ranks[i] > b.ranks[i]) {
@@ -293,7 +335,8 @@ std::optional<Callee> OverloadResolver::choose(const std::string& name, const st
             }
             strictly = strictly || a.ranks[i] < b.ranks[i];
         }
-        return strictly;
+        // On equal conversions an ordinary function beats a template instance ([over.match.best]).
+        return strictly || (!from_template(a.callee) && from_template(b.callee));
     };
     for (const Viable& v : viable) {
         const bool best = std::all_of(viable.begin(), viable.end(),
@@ -327,6 +370,14 @@ std::optional<std::vector<BExprPtr>> OverloadResolver::prepare(const Callee& cal
     std::vector<BExprPtr> out;
     out.reserve(args.size());
     for (std::size_t i = 0; i < args.size(); ++i) {
+        if (args[i]->braced != nullptr) {
+            // `f({5, 2})`: a temporary of the parameter's type, list-initialized.
+            const TypeRef param = ctx_.types.is_reference(params[i]) ? ctx_.types.info(params[i]).target : params[i];
+            args[i] = ctx_.expressions->list_temporary(param, *args[i]->braced, args[i]->range);
+            if (!args[i]) {
+                return std::nullopt;
+            }
+        }
         auto prepared = ctx_.expressions->as_argument(std::move(args[i]), params[i]);
         if (!prepared) {
             return std::nullopt;

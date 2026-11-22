@@ -103,6 +103,28 @@ public:
 
     /// `Point(1, 2)`: a temporary object built by a constructor.
     [[nodiscard]] BExprPtr construct_temporary(TypeRef type, std::vector<BExprPtr> args, SourceRange range);
+    /// A temporary of `type` list-initialized from `list` (an argument
+    /// `{5, 2}`, `v = {4, 5}`, `for (int x : {1, 2})`).
+    [[nodiscard]] BExprPtr list_temporary(TypeRef type, const ast::InitList& list, SourceRange range);
+
+    /// A pointer to free function `function` (its id + 1), as `twice` or `&twice`.
+    BExprPtr function_pointer(std::uint32_t function, SourceRange range);
+    /// A call through the function pointer `target`.
+    BExprPtr indirect_call(BExprPtr target, std::vector<BExprPtr> args, SourceRange range);
+    /// `std::get<I>(t)` on a std::tuple or std::pair: element I; null if `c` is not that.
+    BExprPtr tuple_get(const ast::CallExpr& c, std::vector<BExprPtr>& args, SourceRange range);
+    /// Inside a lambda that captured `this` ([this], [*this] or a default
+    /// capture in a member function): the enclosing object's address; else null.
+    BExprPtr captured_this(SourceRange range);
+    /// `a <=> b` (C++20).
+    BExprPtr three_way(BExprPtr lhs, BExprPtr rhs, SourceRange range);
+
+    /// `__cppi_allocate<T>(n)` (prelude only): storage for `n` objects of
+    /// `type`, not constructed, tracked like `new T[n]` (leaks, double frees).
+    [[nodiscard]] BExprPtr allocate(TypeRef type, BExprPtr count, SourceRange range);
+    /// `__cppi_deallocate(p)` (prelude only): frees storage from allocate()
+    /// without running destructors.
+    [[nodiscard]] BExprPtr deallocate(BExprPtr pointer, SourceRange range);
 
     // Small node builders shared with the other binders.
     /// A bound expression of `type` holding `node`.
@@ -152,8 +174,12 @@ private:
     BExprPtr conditional(const ast::ConditionalExpr& c, SourceRange range);
     /// `a[i]` (built-in or operator[]).
     BExprPtr subscript(const ast::SubscriptExpr& s, SourceRange range);
+    /// C++23 `obj[i, j]`.
+    BExprPtr multidimensional_subscript(const ast::SubscriptExpr& s, BExprPtr base, SourceRange range);
     /// `object.member` / `pointer->member`.
     BExprPtr member(const ast::MemberExpr& m, SourceRange range);
+    /// E0304 when `member` of the library class `type` is newer than the standard in use.
+    void check_library_member(TypeRef type, const std::string& member, SourceRange range);
     /// Member `name` of the record lvalue `object` (`want_methods`: a member
     /// function may be named, for a call).
     BExprPtr member_of(BExprPtr object, const std::string& name, SourceRange name_range, SourceRange range,

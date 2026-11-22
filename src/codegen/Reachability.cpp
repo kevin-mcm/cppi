@@ -135,6 +135,13 @@ void Reachability::expression(const BExpr& e) {
             expression(*p);
         }
     };
+    // A function pointer constant (`&twice`, `count_if(b, e, even)`): the function may be called.
+    if (const auto* c = std::get_if<BConst>(&e.node); c != nullptr && program_.types->is_function_pointer(e.type)) {
+        if (c->bits > 0) {
+            function(static_cast<std::uint32_t>(c->bits - 1));
+        }
+        return;
+    }
     std::visit(Overloaded{
                    [&](const BDeref& d) { sub(d.pointer); },
                    [&](const BAddressOf& a) { sub(a.lvalue); },
@@ -164,7 +171,11 @@ void Reachability::expression(const BExpr& e) {
                        sub(c.else_expr);
                    },
                    [&](const BCall& c) {
-                       function(c.function);
+                       if (c.indirect) {
+                           sub(c.indirect);
+                       } else {
+                           function(c.function);
+                       }
                        sub(c.result_target);
                        for (const auto& a : c.args) {
                            sub(a);

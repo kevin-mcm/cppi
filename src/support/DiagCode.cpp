@@ -56,10 +56,13 @@ std::string_view diag_key(DiagCode code) noexcept {
         case DiagCode::ConstraintsNotSatisfied: return "constraints-not-satisfied";
         case DiagCode::NoOperator: return "no-operator";
         case DiagCode::InstantiatedFrom: return "instantiated-from";
+        case DiagCode::Narrowing: return "narrowing";
+        case DiagCode::DesignatorOrder: return "designator-order";
         case DiagCode::FeatureLocked: return "feature-locked";
         case DiagCode::FeatureRequiresStandard: return "feature-requires-standard";
         case DiagCode::FeatureNotImplemented: return "feature-not-implemented";
         case DiagCode::UnsupportedSyntax: return "unsupported-syntax";
+        case DiagCode::LibraryRequiresStandard: return "library-requires-standard";
         case DiagCode::BudgetExhausted: return "budget-exhausted";
         case DiagCode::HostError: return "host-error";
         case DiagCode::StackOverflow: return "stack-overflow";

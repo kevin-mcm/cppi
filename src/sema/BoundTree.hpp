@@ -24,6 +24,10 @@
 #include <variant>
 #include <vector>
 
+namespace cppi::ast {
+struct InitList;
+}  // namespace cppi::ast
+
 namespace cppi::sema {
 
 /// Forward declaration: bound expressions nest.
@@ -259,6 +263,9 @@ struct BCall {
     std::optional<std::uint32_t> result_temp;   ///< frame slot receiving a returned record
     BExprPtr result_target;                     ///< or the object to build the result in directly (copy elision)
     std::optional<std::uint32_t> virtual_slot;  ///< dynamic dispatch through args[0] (this)
+    /// A call through a function pointer (`f(3)` with `int (*f)(int)`): its value,
+    /// the function's id + 1; `function` is unused.
+    BExprPtr indirect;
 };
 
 /// A call to a host function.
@@ -350,6 +357,10 @@ struct BExpr {
     bool expiring = false;
     /// Where it is in the source.
     SourceRange range;
+    /// A braced list `{...}` used as an argument or the right of `=`: its type
+    /// comes from the parameter it initializes, so overload resolution ranks
+    /// it and OverloadResolver::prepare builds the object. Never generated.
+    const ast::InitList* braced = nullptr;
     /// The node itself.
     std::variant<BConst, BVar, BDeref, BAddressOf, BMember, BIndex, BLoad, BUnary, BBinary, BLogical, BAssign, BIncDec,
                  BConditional, BCall, BHostCall, BIntrinsic, BConvert, BComma, BTemp, BNew, BDelete>
@@ -405,6 +416,9 @@ struct BInitHeaders {
     BExprPtr target;
     /// Its class.
     std::uint32_t record = 0;
+    /// Bookkeeping of [class.cdtor] (a constructor or destructor making the
+    /// object its own class), which the player did not write: not charged.
+    bool unpriced = false;
 };
 
 /// A sequence of statements with the destructors to run when it is left.

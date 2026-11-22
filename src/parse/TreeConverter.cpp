@@ -87,6 +87,7 @@ std::optional<ast::BinaryOp> binary_op(std::string_view op) noexcept {
     if (op == ">") return BinaryOp::Gt;
     if (op == "<=") return BinaryOp::Le;
     if (op == ">=") return BinaryOp::Ge;
+    if (op == "<=>") return BinaryOp::ThreeWay;
     return std::nullopt;
 }
 
@@ -652,7 +653,7 @@ std::optional<ast::MethodTemplate> TreeConverter::convert_method_template(TSNode
         return std::nullopt;
     }
     auto fn = convert_function_decl(inner, declarator);
-    if (!fn || fn->is_constructor || fn->is_destructor || fn->is_virtual) {
+    if (!fn || fn->is_destructor || fn->is_virtual) {
         return std::nullopt;
     }
     ast::MethodTemplate t;
@@ -745,6 +746,9 @@ std::optional<ast::TypeSpec> TreeConverter::convert_type_spec(TSNode decl) const
             } else if (q == "constexpr") {
                 spec.is_constexpr = true;
                 spec.is_const = true;
+            } else if (q == "consteval") {
+                spec.is_constexpr = true;
+                spec.is_consteval = true;
             } else if (q == "inline") {
                 spec.is_inline = true;
             } else if (q != "volatile") {
@@ -910,6 +914,38 @@ bool TreeConverter::convert_declarator(TSNode node, ast::Declarator& out) const 
             }
             out.range = range_of(current);
             return !out.bindings.empty();
+        }
+        if (kind == "function_declarator" || kind == "abstract_function_declarator") {
+            // `(*f)(int)` or `(*)(int)`: a function type, only under a pointer
+            // (`int f(int)` declares a function and is not converted here).
+            const TSNode inner = field(current, "declarator");
+            const std::string_view inner_kind = ts_node_is_null(inner) ? "" : kind_of(inner);
+            // `int(int)` alone, a function type, only as an abstract declarator
+            // (`std::function<int(int)>`).
+            const bool function_type = kind == "abstract_function_declarator" && ts_node_is_null(inner);
+            if (!function_type && inner_kind != "parenthesized_declarator" &&
+                inner_kind != "abstract_parenthesized_declarator") {
+                return false;
+            }
+            ast::DeclaratorPart part;
+            part.kind = ast::DeclaratorKind::Function;
+            part.range = range_of(current);
+            for (const TSNode p : named_children(field(current, "parameters"))) {
+                auto param = convert_param(p);
+                if (!param) {
+                    return false;
+                }
+                if (param->type.name == "void" && param->declarator.parts.empty() && param->declarator.name.empty()) {
+                    continue;  // `(void)`: no parameters
+                }
+                part.params.push_back(ast::TypeDesc{std::move(param->type), std::move(param->declarator), nullptr});
+            }
+            out.parts.push_back(std::move(part));
+            if (function_type) {
+                return true;
+            }
+            current = inner;
+            continue;
         }
         if (kind == "parenthesized_declarator" || kind == "abstract_parenthesized_declarator") {
             auto inner = first_named_child(current);
@@ -1322,9 +1358,18 @@ std::optional<std::vector<ast::TypeDesc>> TreeConverter::convert_template_args(T
     }
     std::vector<ast::TypeDesc> args;
     for (const TSNode child : named_children(list)) {
+        if (kind_of(child) != "type_descriptor") {
+            // A non-type template argument: `3`, `N + 1` (a plain name such as `N`
+            // is a type_descriptor; analysis tells a constant from a type).
+            ast::TypeDesc value;
+            value.spec.range = range_of(child);
+            value.value = std::make_shared<ast::Expr>(convert_expr(child));
+            args.push_back(std::move(value));
+            continue;
+        }
         auto desc = convert_type_desc(child);
         if (!desc) {
-            return std::nullopt;  // non-type template arguments
+            return std::nullopt;
         }
         args.push_back(std::move(*desc));
     }
@@ -1682,17 +1727,23 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
         const TSNode base = field(node, "argument");
         TSNode index = field(node, "index");
         const TSNode indices = field(node, "indices");
+        std::vector<TSNode> more;
         if (ts_node_is_null(index) && !ts_node_is_null(indices)) {
             const auto items = named_children(indices);
-            if (items.size() != 1) {
+            if (items.empty()) {
                 return unsupported_expr(node);
             }
             index = items.front();
+            more.assign(items.begin() + 1, items.end());
         }
         if (ts_node_is_null(base) || ts_node_is_null(index)) {
             return unsupported_expr(node);
         }
-        return {range, ast::SubscriptExpr{convert_expr_ptr(base), convert_expr_ptr(index)}};
+        ast::SubscriptExpr subscript{convert_expr_ptr(base), convert_expr_ptr(index), {}};
+        for (const TSNode extra : more) {
+            subscript.more.push_back(convert_expr_ptr(extra));
+        }
+        return {range, std::move(subscript)};
     }
     if (kind == "field_expression") {
         const TSNode base = field(node, "argument");
@@ -1727,6 +1778,24 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
         }
         return {range, ast::CastExpr{ast::CastKind::CStyle, std::move(*type), convert_expr_ptr(value)}};
     }
+    if (kind == "compound_literal_expression") {
+        // `Order{5, 2}`, `int{3}`, `std::vector<int>{1, 2}`: direct-list-initialization.
+        const TSNode type = field(node, "type");
+        const TSNode value = field(node, "value");
+        if (ts_node_is_null(type) || ts_node_is_null(value) || kind_of(value) != "initializer_list") {
+            return unsupported_expr(node);
+        }
+        std::optional<ast::TypeDesc> desc;
+        if (kind_of(type) == "type_descriptor") {
+            desc = convert_type_desc(type);  // C's `(T){...}`
+        } else if (auto spec = convert_type_node(type)) {
+            desc = ast::TypeDesc{std::move(*spec), {}, nullptr};
+        }
+        if (!desc) {
+            return unsupported_expr(node);
+        }
+        return {range, ast::CastExpr{ast::CastKind::List, std::move(*desc), convert_expr_ptr(value)}};
+    }
     if (kind == "sizeof_expression") {
         ast::SizeofExpr s;
         const TSNode type = field(node, "type");
@@ -1745,11 +1814,28 @@ ast::Expr TreeConverter::convert_expr(TSNode node) const {
     }
     if (kind == "initializer_list") {
         ast::InitList list;
+        std::vector<std::string> designators;
+        bool designated = false;
         for (const TSNode child : named_children(node)) {
             if (kind_of(child) == "initializer_pair") {
-                return unsupported_expr(node);  // designated initializers
+                // `.x = 5` (C++20); nested (`.a.b`) and array (`[0]`) designators are C, not C++.
+                const TSNode designator = field(child, "designator");
+                const TSNode value = field(child, "value");
+                if (ts_node_is_null(designator) || ts_node_is_null(value) ||
+                    kind_of(designator) != "field_designator" || ts_node_named_child_count(child) != 2) {
+                    return unsupported_expr(node);
+                }
+                const std::string name(text(designator));
+                designators.push_back(name.substr(name.find_first_not_of(". \t")));
+                list.elements.push_back(convert_expr(value));
+                designated = true;
+                continue;
             }
+            designators.emplace_back();
             list.elements.push_back(convert_expr(child));
+        }
+        if (designated) {
+            list.designators = std::move(designators);
         }
         return {range, std::move(list)};
     }
@@ -2007,6 +2093,7 @@ ast::Expr TreeConverter::convert_lambda(TSNode node) const {
     const TSNode captures = field(node, "captures");
     if (!ts_node_is_null(captures)) {
         bool reference = false;
+        bool star = false;  // `*this`
         const std::uint32_t count = ts_node_child_count(captures);
         for (std::uint32_t i = 0; i < count; ++i) {
             const TSNode part = ts_node_child(captures, i);
@@ -2015,8 +2102,11 @@ ast::Expr TreeConverter::convert_lambda(TSNode node) const {
                 reference = true;
             } else if (kind == "lambda_default_capture") {
                 lambda.default_capture = text(part) == "&" ? '&' : '=';
+            } else if (kind == "*") {
+                star = true;
             } else if (kind == "this") {
-                lambda.captures_this = true;
+                (star ? lambda.copies_this : lambda.captures_this) = true;
+                star = false;
             } else if (kind == "identifier") {
                 lambda.captures.push_back(
                     ast::LambdaCapture{std::string(text(part)), reference, nullptr, range_of(part)});
@@ -2033,7 +2123,7 @@ ast::Expr TreeConverter::convert_lambda(TSNode node) const {
             } else if (kind == "," || kind == "[" || kind == "]") {
                 reference = false;
             } else {
-                return unsupported_expr(node);  // `*this`, pack expansions...
+                return unsupported_expr(node);  // pack expansions...
             }
         }
     }

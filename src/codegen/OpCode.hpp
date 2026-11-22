@@ -85,11 +85,12 @@ enum class OpCode : std::uint8_t {
     /// [a b] if ((a <cmp> b) == reserved) pc = operand; argc: kind (as for Eq) | (cmp - Eq) << 4.
     /// A comparison and the conditional jump that uses it, in one instruction.
     JumpCompare,
-    Call,         ///< call functions[operand] with argc stack arguments
-    CallVirtual,  ///< like Call, dispatched on the first argument; reserved = slot
-    Ret,          ///< argc = 1: return the top of the stack
-    CallHost,     ///< call host function `operand` with `argc` arguments
-    Intrinsic,    ///< native helper `operand` (sema::Intrinsic) with `argc` arguments
+    Call,          ///< call functions[operand] with argc stack arguments
+    CallVirtual,   ///< like Call, dispatched on the first argument; reserved = slot
+    CallIndirect,  ///< [args... f] call function f - 1 (a function pointer) with argc arguments
+    Ret,           ///< argc = 1: return the top of the stack
+    CallHost,      ///< call host function `operand` with `argc` arguments
+    Intrinsic,     ///< native helper `operand` (sema::Intrinsic) with `argc` arguments
     // Objects
     New,          ///< operand bit 0: array (count on the stack), bit 1: zero; wide = element cells
     Delete,       ///< [ptr]; argc bit 0: array form, bit 1: free the complete object found from its header

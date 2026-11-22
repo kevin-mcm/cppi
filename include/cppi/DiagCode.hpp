@@ -65,11 +65,14 @@ enum class DiagCode : std::uint16_t {
     ConstraintsNotSatisfied = 238,  ///< args: function, [constraint] (C++20 concepts)
     NoOperator = 239,               ///< args: op, type (a class without that operator)
     InstantiatedFrom = 240,         ///< note; args: function (the library code the error above is in)
+    Narrowing = 241,                ///< args: from, to (a narrowing conversion inside braces, C++11)
+    DesignatorOrder = 242,          ///< args: member (out of declaration order, repeated, or mixed)
     // Language features -------------------------------------------------
     FeatureLocked = 300,            ///< args: feature
     FeatureRequiresStandard = 301,  ///< args: feature, required, current
     FeatureNotImplemented = 302,    ///< args: feature
     UnsupportedSyntax = 303,        ///< args: construct
+    LibraryRequiresStandard = 304,  ///< args: name (`std::optional`), standard (that introduced it)
     // Runtime -----------------------------------------------------------
     BudgetExhausted = 400,        ///< args: budget
     HostError = 401,              ///< args: function, error (host-defined code), detail
@@ -93,7 +96,7 @@ enum class DiagCode : std::uint16_t {
     MemoryLeak = 510,         ///< warning; args: count
     PureVirtualCall = 511,    ///< args: function
     InvalidPointer = 512,     ///< args: none
-    BadAccess = 513,          ///< args: what ("optional")
+    BadAccess = 513,          ///< args: what ("std::optional" or "std::expected")
 };
 
 /// True for codes in the 5xx group.

@@ -467,13 +467,18 @@ bool DeclarationBinder::bind_structured(const Symbol& whole, const ast::VarDecla
             parts.push_back(std::move(e));
         }
     } else if (types.is_record(type) && types.record(type).bases.empty()) {
-        const RecordInfo& info = types.record(type);
-        if (info.fields.size() != names.size()) {
-            ctx_.report(
-                DiagnosticFactory::too_many_initializers(var.declarator.range, info.fields.size(), names.size()));
+        // A std::tuple's unused elements (__tuple_none) are not bound.
+        std::vector<FieldInfo> fields;
+        for (const FieldInfo& f : types.record(type).fields) {
+            if (!(types.is_record(f.type) && types.record(f.type).name == "__tuple_none")) {
+                fields.push_back(f);
+            }
+        }
+        if (fields.size() != names.size()) {
+            ctx_.report(DiagnosticFactory::too_many_initializers(var.declarator.range, fields.size(), names.size()));
             return false;
         }
-        for (const FieldInfo& f : info.fields) {
+        for (const FieldInfo& f : fields) {
             BMember m;
             m.base = object();
             m.offset = f.offset;
@@ -731,6 +736,12 @@ void DeclarationBinder::bind_function(const ast::FunctionDecl& decl, SourceRange
         }
         return;
     }
+    // An ordinary function may share its name with function templates; the
+    // symbol becomes an overload set that keeps them.
+    if (existing != nullptr && existing->kind == SymbolKind::Template && ctx_.templates != nullptr &&
+        ctx_.templates->function_templates_only(*existing)) {
+        existing->kind = SymbolKind::Functions;
+    }
     if (existing != nullptr && existing->kind != SymbolKind::Functions) {
         if (existing->kind != SymbolKind::Poisoned) {
             ctx_.report(DiagnosticFactory::redefinition(decl.declarator.range, name));
@@ -783,6 +794,8 @@ void DeclarationBinder::bind_function(const ast::FunctionDecl& decl, SourceRange
         info.range = decl.declarator.range;
         info.decl = &decl;
         info.is_constexpr = decl.return_type.is_constexpr;
+        info.is_consteval =
+            decl.return_type.is_consteval && ctx_.features.allow(Feature::Consteval, decl.return_type.range);
         id = add_function(std::move(info));
         if (existing == nullptr) {
             Symbol f;
@@ -819,6 +832,7 @@ std::optional<std::uint32_t> DeclarationBinder::instantiate_function(
     info.range = decl.declarator.range;
     info.decl = &decl;
     info.is_constexpr = decl.return_type.is_constexpr;
+    info.is_consteval = decl.return_type.is_consteval;
     const std::uint32_t id = add_function(std::move(info));
     registered(id);  // before the body: recursive calls find this instance
     if (decl.body) {
@@ -832,7 +846,7 @@ std::optional<std::uint32_t> DeclarationBinder::instantiate_method(std::uint32_t
                                                                    const std::function<void(std::uint32_t)>& registered,
                                                                    const GenericLambda* lambda) {
     generic_autos_ = lambda != nullptr ? lambda->autos : nullptr;
-    auto sig = resolve_signature(decl, false, lambda != nullptr && lambda->deduce_return);
+    auto sig = resolve_signature(decl, decl.is_constructor, lambda != nullptr && lambda->deduce_return);
     generic_autos_ = nullptr;
     if (!sig) {
         return std::nullopt;
@@ -847,8 +861,11 @@ std::optional<std::uint32_t> DeclarationBinder::instantiate_method(std::uint32_t
     info.record = record;
     info.is_const = lambda != nullptr ? lambda->is_const : decl.is_const;
     info.is_static = decl.is_static;
+    info.is_constructor = decl.is_constructor;
+    info.is_explicit = decl.is_explicit;
     info.access = decl.access;
     info.is_constexpr = decl.return_type.is_constexpr;
+    info.is_consteval = decl.return_type.is_consteval;
     const std::uint32_t id = add_function(std::move(info));
     registered(id);  // before the body: recursive calls find this instance
     if (decl.body) {
@@ -911,6 +928,112 @@ void DeclarationBinder::define_out_of_class(const ast::FunctionDecl& decl, Sourc
                                              NameSuggester::closest(name, ctx_.expressions->members().names(record))));
 }
 
+namespace {
+
+ast::ExprPtr own(SourceRange range, auto node) {
+    auto e = std::make_unique<ast::Expr>();
+    e->range = range;
+    e->node = std::move(node);
+    return e;
+}
+
+/// `this->name` or `__other.name`.
+ast::ExprPtr member_of(bool self, const std::string& name, SourceRange range) {
+    ast::MemberExpr m;
+    m.base = self ? own(range, ast::ThisExpr{}) : own(range, ast::Identifier{"__other", {}});
+    m.member = name;
+    m.member_range = range;
+    m.arrow = self;
+    return own(range, std::move(m));
+}
+
+ast::ExprPtr binary(ast::BinaryOp op, ast::ExprPtr lhs, ast::ExprPtr rhs, SourceRange range) {
+    ast::BinaryExpr b;
+    b.op = op;
+    b.lhs = std::move(lhs);
+    b.rhs = std::move(rhs);
+    return own(range, std::move(b));
+}
+
+ast::ExprPtr zero(SourceRange range) {
+    ast::IntLiteral literal;
+    literal.text = "0";
+    return own(range, std::move(literal));
+}
+
+}  // namespace
+
+const std::vector<ast::Stmt>* DeclarationBinder::synthesize_comparison(std::uint32_t id) {
+    // C++20 [class.compare.default]: `this->m == __other.m && ...` for operator==,
+    // and for operator<=> the first member comparison that is not equal, in the
+    // common category (strong_ordering, or partial_ordering with a floating member).
+    const FunctionInfo& info = ctx_.functions[id];
+    if (!info.record) {
+        return nullptr;
+    }
+    const RecordInfo& r = ctx_.types.record_at(*info.record);
+    const SourceRange range = info.range;
+    if (!r.bases.empty()) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "defaulted comparison of a class with bases"));
+        return nullptr;
+    }
+    std::vector<std::string> fields;
+    bool floating = false;
+    for (const FieldInfo& f : r.fields) {
+        fields.push_back(f.name);
+        floating = floating || ctx_.types.kind(f.type) == TypeKind::Double;
+    }
+    ast::ExprPtr result;
+    if (info.implicit == FunctionInfo::Implicit::EqualityComparison) {
+        result = own(range, ast::BoolLiteral{true});
+        for (auto it = fields.rbegin(); it != fields.rend(); ++it) {
+            auto equal = binary(ast::BinaryOp::Eq, member_of(true, *it, range), member_of(false, *it, range), range);
+            result = it == fields.rbegin()
+                         ? std::move(equal)
+                         : binary(ast::BinaryOp::LogicalAnd, std::move(equal), std::move(result), range);
+        }
+    } else {
+        const auto category = [&] {
+            ast::TypeDesc desc;
+            desc.spec.name = floating ? "partial_ordering" : "strong_ordering";
+            desc.spec.scope = {"std"};
+            desc.spec.range = range;
+            return desc;
+        };
+        const auto in_category = [&](const std::string& field) {
+            ast::CastExpr cast;
+            cast.kind = ast::CastKind::Functional;
+            cast.type = category();
+            cast.operand =
+                binary(ast::BinaryOp::ThreeWay, member_of(true, field, range), member_of(false, field, range), range);
+            return own(range, std::move(cast));
+        };
+        ast::InitList equivalent;  // `std::strong_ordering{0}`: all members equal
+        equivalent.elements.push_back(std::move(*zero(range)));
+        ast::CastExpr last;
+        last.kind = ast::CastKind::List;
+        last.type = category();
+        last.operand = own(range, std::move(equivalent));
+        result = own(range, std::move(last));
+        for (auto it = fields.rbegin(); it != fields.rend(); ++it) {
+            ast::ConditionalExpr pick;
+            pick.condition = binary(ast::BinaryOp::Ne, in_category(*it), zero(range), range);
+            pick.then_expr = in_category(*it);
+            pick.else_expr = std::move(result);
+            result = own(range, std::move(pick));
+        }
+    }
+    ast::ReturnStmt ret;
+    ret.value = std::move(result);
+    ast::Stmt stmt;
+    stmt.range = range;
+    stmt.node = std::move(ret);
+    std::vector<ast::Stmt> statements;
+    statements.push_back(std::move(stmt));
+    synthesized_.push_back(std::move(statements));
+    return &synthesized_.back();
+}
+
 void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* decl) {
     const TypeTable& types = ctx_.types;
     FunctionInfo& info = ctx_.functions[id];
@@ -926,7 +1049,8 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
     fc.const_this = info.is_const;
     fc.has_this = !info.is_static;
     fc.deduce_return =
-        deduce_next_ || (decl != nullptr && decl->return_type.name == "auto" && decl->declarator.parts.empty());
+        deduce_next_ || (decl != nullptr && decl->return_type.name == "auto" && decl->declarator.parts.empty() &&
+                         info.implicit != FunctionInfo::Implicit::ThreeWayComparison);
     deduce_next_ = false;
     FunctionContext* previous = ctx_.fn;
     ctx_.fn = &fc;
@@ -979,7 +1103,9 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
         for (auto& cleanup : ctx_.statements->release_temporaries(0)) {
             body.statements.push_back(std::move(cleanup));
         }
-    } else if (info.implicit != FunctionInfo::Implicit::None && info.record) {
+    } else if ((info.implicit == FunctionInfo::Implicit::CopyConstructor ||
+                info.implicit == FunctionInfo::Implicit::CopyAssignment) &&
+               info.record) {
         Symbol* other_symbol = ctx_.symbols.current().find("__other");
         auto other = ctx_.expressions->variable(*other_symbol, "__other", info.range);
         if (info.implicit == FunctionInfo::Implicit::CopyConstructor) {
@@ -996,12 +1122,30 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
         for (auto& cleanup : ctx_.statements->release_temporaries(0)) {
             body.statements.push_back(std::move(cleanup));
         }
+    } else if (info.is_destructor && info.record) {
+        // The derived class's destructor has finished: the object is of this
+        // class again, and virtual calls reach its overriders ([class.cdtor]).
+        // Not with virtual bases, whose place depends on the complete object.
+        const RecordInfo& r = types.record_at(*info.record);
+        if (r.has_header && r.virtual_base_offsets.empty()) {
+            if (auto self = ctx_.expressions->this_object(info.range)) {
+                body.statements.push_back(wrap(info.range, BInitHeaders{std::move(self), *info.record, true}));
+            }
+        }
     }
-    if (decl != nullptr && decl->body) {
+    const std::size_t errors_before = ctx_.sink.errors();
+    if (info.implicit == FunctionInfo::Implicit::EqualityComparison ||
+        info.implicit == FunctionInfo::Implicit::ThreeWayComparison) {
+        if (const auto* statements = synthesize_comparison(id)) {
+            ctx_.statements->bind_statements(*statements, body.statements);
+        }
+    } else if (decl != nullptr && decl->body) {
         if (const auto* block = std::get_if<ast::Block>(&decl->body->node)) {
             ctx_.statements->bind_statements(block->statements, body.statements);
         }
     }
+    // A `return` whose value had an error was dropped: not a missing return.
+    const bool body_failed = ctx_.sink.errors() != errors_before;
     if (info.is_destructor && info.record) {
         ctx_.initializers->destroy_members(*info.record, body.cleanup);
     }
@@ -1016,7 +1160,7 @@ void DeclarationBinder::define_body(std::uint32_t id, const ast::FunctionDecl* d
                 BReturn r;
                 r.value = std::move(*ExpressionBinder::constant(info.return_type, 0, info.range));
                 body.statements.push_back(wrap(info.range, std::move(r)));
-            } else {
+            } else if (!body_failed) {
                 ctx_.report(DiagnosticFactory::missing_return(info.range, info.display));
             }
         }
@@ -1362,6 +1506,11 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
             ok = false;
             continue;
         }
+        if (name == "operator[]" && m.params.size() != 1 &&
+            !ctx_.features.allow(Feature::MultidimensionalSubscript, m.declarator.range)) {
+            ok = false;  // C++23: an operator[] with several parameters
+            continue;
+        }
         if (ctor && m.is_virtual) {
             ctx_.report(DiagnosticFactory::declaration_not_allowed(m.declarator.range, "virtual constructor"));
             ok = false;
@@ -1390,6 +1539,7 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
         info.is_explicit = m.is_explicit;
         info.is_static = m.is_static;
         info.is_constexpr = m.return_type.is_constexpr;
+        info.is_consteval = m.return_type.is_consteval && ctx_.features.allow(Feature::Consteval, m.return_type.range);
         if (m.is_defaulted) {
             // `= default`: the compiler's version of a copy constructor or
             // assignment; other members get an empty body.
@@ -1400,6 +1550,25 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
             } else if (name == "operator=" && copy_like) {
                 info.implicit = FunctionInfo::Implicit::CopyAssignment;
                 info.params[0].name = "__other";
+            } else if ((name == "operator==" || name == "operator<=>") && copy_like &&
+                       ctx_.features.allow(Feature::ThreeWayComparison, m.declarator.range)) {
+                // C++20 defaulted comparisons: compared member by member (define_body).
+                info.implicit = name == "operator==" ? FunctionInfo::Implicit::EqualityComparison
+                                                     : FunctionInfo::Implicit::ThreeWayComparison;
+                info.params[0].name = "__other";
+                // `auto operator<=>(...) const = default;` returns the members' common
+                // category, known now: strong_ordering, or partial_ordering with a double.
+                if (info.implicit == FunctionInfo::Implicit::ThreeWayComparison && m.return_type.name == "auto") {
+                    bool floating = false;
+                    for (const FieldInfo& f : types.record_at(record).fields) {
+                        floating = floating || types.kind(f.type) == TypeKind::Double;
+                    }
+                    const Symbol* category =
+                        ctx_.symbols.lookup_qualified({"std"}, floating ? "partial_ordering" : "strong_ordering");
+                    if (category != nullptr && category->kind == SymbolKind::Type) {
+                        info.return_type = category->type;
+                    }
+                }
             }
         }
 
@@ -1542,12 +1711,47 @@ void DeclarationBinder::bind_record(const ast::RecordDef& def, SourceRange /*ran
         }
     }
 
+    // [class.compare.default]: a defaulted operator<=> also declares a defaulted
+    // operator== if the class declares none.
+    {
+        const RecordInfo& r = types.record_at(record);
+        bool three_way = false;
+        if (auto it = r.methods.find("operator<=>"); it != r.methods.end()) {
+            for (const std::uint32_t id : it->second) {
+                three_way = three_way || ctx_.functions[id].implicit == FunctionInfo::Implicit::ThreeWayComparison;
+            }
+        }
+        if (three_way && !r.methods.contains("operator==")) {
+            FunctionInfo info;
+            info.name = "operator==";
+            info.display = r.name + "::operator==";
+            info.return_type = TypeTable::kBool;
+            info.range = def.name_range;
+            info.record = record;
+            info.is_const = true;
+            info.implicit = FunctionInfo::Implicit::EqualityComparison;
+            ParamInfo other;
+            other.name = "__other";
+            other.type = types.reference_to(types.record_type(record), true);
+            info.params.push_back(other);
+            const std::uint32_t id = add_function(std::move(info));
+            types.record_at(record).methods["operator=="].push_back(id);
+            bodies.emplace_back(id, nullptr);
+        }
+    }
+
     types.record_at(record).complete = true;
     build_dispatch(record);
     synthesize_copies(record, def, bodies);
     (void)ok;
 
     for (const auto& [id, decl] : bodies) {
+        // Virtual functions are in the dispatch table, and implicit members
+        // (decl == nullptr) are needed by the class itself: defined now.
+        if (deferred_bodies != nullptr && decl != nullptr && !ctx_.functions[id].is_virtual) {
+            deferred_bodies->emplace_back(id, decl);
+            continue;
+        }
         define_body(id, decl);
     }
 }

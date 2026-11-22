@@ -5,6 +5,7 @@
 /// @date 2026-10-08
 
 #include "sema/ExpressionBinder.hpp"
+#include "library/LibraryStandards.hpp"
 
 #include "sema/CaptureAnalysis.hpp"
 #include "sema/DeclarationBinder.hpp"
@@ -53,6 +54,7 @@ std::string_view op_text(ast::BinaryOp op) {
         case BinaryOp::Le: return "<=";
         case BinaryOp::Ge: return ">=";
         case BinaryOp::Comma: return ",";
+        case BinaryOp::ThreeWay: return "<=>";
     }
     return "?";
 }
@@ -127,6 +129,11 @@ BExprPtr ExpressionBinder::bind_condition(const ast::Expr& expr) {
 }
 
 BExprPtr ExpressionBinder::to_rvalue(BExprPtr expr) {
+    if (expr && expr->braced != nullptr) {
+        // A braced list only initializes something (a parameter, `v = {...}`), never as a value.
+        ctx_.report(DiagnosticFactory::unsupported_syntax(expr->range, "braced list here"));
+        return nullptr;
+    }
     if (!expr || !expr->lvalue) {
         return expr;
     }
@@ -349,6 +356,126 @@ BExprPtr ExpressionBinder::this_pointer(SourceRange range) {
     return make(pointer, false, range, BLoad{std::move(var)});
 }
 
+BExprPtr ExpressionBinder::function_pointer(std::uint32_t function, SourceRange range) {
+    TypeTable& types = ctx_.types;
+    if (ctx_.templates != nullptr) {
+        ctx_.templates->define_if_pending(function, range);
+    }
+    const FunctionInfo& fn = ctx_.functions[function];
+    std::vector<TypeRef> params;
+    params.reserve(fn.params.size());
+    for (const ParamInfo& p : fn.params) {
+        params.push_back(p.type);
+    }
+    const TypeRef type = types.pointer_to(types.function_type(fn.return_type, params));
+    ctx_.called.insert(function);  // it may be called: an undefined one is an error
+    return constant(type, static_cast<std::int64_t>(function) + 1, range);
+}
+
+BExprPtr ExpressionBinder::indirect_call(BExprPtr target, std::vector<BExprPtr> args, SourceRange range) {
+    const TypeTable& types = ctx_.types;
+    if (!target) {
+        return nullptr;
+    }
+    const auto signature = types.signature(types.info(target->type).target);  // copy: binding may add types
+    const auto& [result, params] = signature;
+    if (args.size() != params.size()) {
+        ctx_.report(
+            DiagnosticFactory::no_matching_function(range, types.name(target->type), ctx_.overloads->describe(args)));
+        return nullptr;
+    }
+    if (types.is_reference(result)) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "a function pointer returning a reference"));
+        return nullptr;
+    }
+    BCall call;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        auto argument = as_argument(std::move(args[i]), params[i]);
+        if (!argument) {
+            return nullptr;
+        }
+        call.args.push_back(std::move(argument));
+    }
+    call.indirect = std::move(target);
+    if (types.is_record(result)) {  // built in a temporary, like a direct call's result
+        call.result_temp = ctx_.allocate_local(types.cells(result));
+        if (ctx_.initializers->needs_destruction(result)) {
+            ctx_.fn->temporaries.push_back(FunctionContext::Temporary{*call.result_temp, result});
+        }
+        auto e = make(result, true, range, std::move(call));
+        e->expiring = true;
+        return e;
+    }
+    return make(result, false, range, std::move(call));
+}
+
+BExprPtr ExpressionBinder::tuple_get(const ast::CallExpr& c, std::vector<BExprPtr>& args, SourceRange range) {
+    // `std::get<I>(t)` on a std::tuple or std::pair: element I, whose type depends
+    // on I (the prelude cannot say that without partial specialization).
+    const TypeTable& types = ctx_.types;
+    const bool std_scope = c.scope.empty() || (c.scope.size() == 1 && c.scope.front() == "std");
+    if (c.callee != "get" || !std_scope || c.template_args.size() != 1 || args.size() != 1 ||
+        !types.is_record(args.front()->type) || ctx_.templates == nullptr) {
+        return nullptr;
+    }
+    const auto origin = ctx_.templates->origin(args.front()->type);
+    const bool tuple = origin && ctx_.templates->is_library_template(origin->first, "tuple");
+    const bool pair = origin && ctx_.templates->is_library_template(origin->first, "pair");
+    if (!tuple && !pair) {
+        return nullptr;
+    }
+    const ast::TypeDesc& desc = c.template_args.front();
+    std::optional<std::int64_t> index;
+    if (desc.value) {
+        if (auto bound = bind(*desc.value)) {
+            index = ctx_.constants.integer(*bound);
+        }
+    } else if (const Symbol* s = ctx_.symbols.lookup(desc.spec.name); s != nullptr) {
+        index = s->kind == SymbolKind::Constant ? std::optional(s->value) : s->constant;
+    }
+    const auto& fields = types.record(args.front()->type).fields;
+    const auto count = static_cast<std::int64_t>(std::count_if(fields.begin(), fields.end(), [&](const FieldInfo& f) {
+        return !(types.is_record(f.type) && types.record(f.type).name == "__tuple_none");
+    }));
+    if (!index || *index < 0 || *index >= count) {
+        ctx_.report(DiagnosticFactory::not_constant(desc.spec.range));
+        return nullptr;
+    }
+    std::string name = "__" + std::to_string(*index);
+    if (pair) {
+        name = *index == 0 ? "first" : "second";
+    }
+    return member_of(std::move(args.front()), name, range, range, false);
+}
+
+BExprPtr ExpressionBinder::captured_this(SourceRange range) {
+    // Inside a lambda's operator(): the closure's __this (the object it captured
+    // with [this]), or the address of its __self (the copy made by [*this]).
+    if (ctx_.fn == nullptr || !ctx_.fn->record || !ctx_.fn->has_this) {
+        return nullptr;
+    }
+    const TypeTable& types = ctx_.types;
+    for (const FieldInfo& f : types.record_at(*ctx_.fn->record).fields) {
+        if (f.name != "__this" && f.name != "__self") {
+            continue;
+        }
+        auto closure = this_object(range);
+        if (!closure) {
+            return nullptr;
+        }
+        auto field = member_of(std::move(closure), f.name, range, range, false);
+        if (!field) {
+            return nullptr;
+        }
+        if (f.name == "__this") {
+            return to_rvalue(std::move(field));
+        }
+        const TypeRef pointer = ctx_.types.pointer_to(field->type, field->is_const);
+        return make(pointer, false, range, BAddressOf{std::move(field)});
+    }
+    return nullptr;
+}
+
 BExprPtr ExpressionBinder::this_object(SourceRange range) {
     auto self = this_pointer(range);
     if (!self) {
@@ -407,6 +534,9 @@ BExprPtr ExpressionBinder::make_call(const Callee& callee, std::vector<BExprPtr>
         const TypeRef result = ctx_.overloads->return_type(callee);
         return make(result, false, range, BHostCall{FunctionId{callee.id}, std::move(args)});
     }
+    if (ctx_.templates != nullptr) {
+        ctx_.templates->define_if_pending(callee.id, range);  // a class template member, on first use
+    }
     const FunctionInfo& info = ctx_.functions[callee.id];
     ctx_.called.insert(callee.id);
     BCall call;
@@ -434,7 +564,20 @@ BExprPtr ExpressionBinder::make_call(const Callee& callee, std::vector<BExprPtr>
         e->expiring = true;
         return e;
     }
-    return make(ret, false, range, std::move(call));
+    auto result = make(ret, false, range, std::move(call));
+    // C++20 consteval: the call is evaluated now (except inside another
+    // consteval function, which is itself evaluated where it is called).
+    const bool immediate = ctx_.functions[callee.id].is_consteval &&
+                           (ctx_.fn == nullptr || !ctx_.functions[ctx_.fn->function].is_consteval);
+    if (immediate && types.is_scalar(ret)) {
+        const auto value = ctx_.constants.eval(*result);
+        if (!value) {
+            ctx_.report(DiagnosticFactory::not_constant(range));
+            return nullptr;
+        }
+        return constant(ret, value->is_double ? std::bit_cast<std::int64_t>(value->d) : value->i, range);
+    }
+    return result;
 }
 
 // =============================================================================
@@ -470,11 +613,16 @@ BExprPtr ExpressionBinder::bind_node(const ast::Expr& e, Use use) {
             [&](const ast::MemberExpr& m) { return member(m, range); },
             [&](const ast::CastExpr& c) { return cast(c, range); },
             [&](const ast::SizeofExpr& s) { return size_of(s, range); },
-            [&](const ast::InitList&) -> BExprPtr {
-                ctx_.report(DiagnosticFactory::unsupported_syntax(range, "initializer_list"));
-                return nullptr;
+            [&](const ast::InitList& l) -> BExprPtr {
+                // Typed by where it goes (an argument, `v = {...}`): see BExpr::braced.
+                auto list = make(TypeTable::kVoid, false, range, BConst{});
+                list->braced = &l;
+                return list;
             },
-            [&](const ast::ThisExpr&) { return this_pointer(range); },
+            [&](const ast::ThisExpr&) {
+                auto outer = captured_this(range);  // inside a lambda that captured `this`
+                return outer ? std::move(outer) : this_pointer(range);
+            },
             [&](const ast::NewExpr& n) { return new_expr(n, range); },
             [&](const ast::DeleteExpr& d) { return delete_expr(d, range); },
             [&](const ast::LambdaExpr& l) { return lambda(l, range); },
@@ -582,6 +730,25 @@ BExprPtr ExpressionBinder::identifier(const ast::Identifier& id, SourceRange ran
             }
             return member_of(std::move(self), id.name, range, range, false);
         }
+        // A lambda that captured `this`: the members of the enclosing object.
+        if (auto outer = captured_this(range)) {
+            const TypeInfo pointer = types.info(outer->type);
+            const std::uint32_t record = types.info(pointer.target).decl;
+            const MemberResult om = members_.find(record, id.name);
+            if (om.kind == MemberResult::Kind::Field) {
+                BDeref deref;
+                deref.cells = types.cells(pointer.target);
+                deref.pointer = std::move(outer);
+                auto object = make(pointer.target, true, range, std::move(deref));
+                object->is_const = pointer.target_const;
+                return member_of(std::move(object), id.name, range, range, false);
+            }
+            if (om.kind == MemberResult::Kind::Methods) {
+                const Severity severity = use == Use::Statement ? Severity::Warning : Severity::Error;
+                ctx_.report(DiagnosticFactory::function_not_called(range, id.name, severity));
+                return nullptr;
+            }
+        }
     }
     if (symbol == nullptr) {
         symbol = ctx_.symbols.lookup(id.name);
@@ -601,10 +768,18 @@ BExprPtr ExpressionBinder::identifier(const ast::Identifier& id, SourceRange ran
 BExprPtr ExpressionBinder::from_symbol(Symbol& found, const std::string& name, SourceRange range, Use use) {
     Symbol* symbol = &found;
     const ast::Identifier id{name, {}};
+    ctx_.allow_library_name(symbol, range, name);
     switch (symbol->kind) {
         case SymbolKind::Variable: return variable(*symbol, id.name, range);
         case SymbolKind::Constant: return constant(symbol->type, symbol->value, range);
         case SymbolKind::Functions: {
+            // A function's name as a value is a pointer to it (`auto f = twice;`,
+            // `std::count_if(b, e, even)`): one ordinary function of the player's.
+            if (use == Use::Value && symbol->templates.empty() && symbol->functions.size() == 1 &&
+                !symbol->functions.front().host && !symbol->functions.front().intrinsic &&
+                !ctx_.functions[symbol->functions.front().id].record) {
+                return function_pointer(symbol->functions.front().id, range);
+            }
             // `harvest;` is legal C++ that does nothing: warn, don't fail.
             const Severity severity = use == Use::Statement ? Severity::Warning : Severity::Error;
             ctx_.report(DiagnosticFactory::function_not_called(range, id.name, severity));
@@ -636,6 +811,18 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         auto callee = bind(*c.callee_expr);
         if (!callee) {
             return nullptr;
+        }
+        if (types.is_function_pointer(callee->type)) {
+            // `(*f)(3)`, `table[i](3)`: a call through a function pointer.
+            std::vector<BExprPtr> args;
+            for (const auto& a : c.args) {
+                auto bound = bind(a);
+                if (!bound) {
+                    return nullptr;
+                }
+                args.push_back(std::move(bound));
+            }
+            return indirect_call(to_rvalue(std::move(callee)), std::move(args), range);
         }
         if (types.is_record(callee->type) && is_function_object(types.info(callee->type).decl)) {
             std::vector<BExprPtr> args;
@@ -683,7 +870,14 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         if (!args) {
             return nullptr;
         }
+        if (auto element = tuple_get(c, *args, range)) {
+            return element;
+        }
         return ctx_.templates->call(c, std::move(*args), range);
+    }
+    // The prelude's raw storage (std::vector): freed without destructors.
+    if (c.callee == "__cppi_deallocate" && c.scope.empty() && c.args.size() == 1 && ctx_.library_depth > 0) {
+        return deallocate(bind(c.args.front()), range);
     }
 
     if (!c.scope.empty() && qualified == nullptr) {
@@ -758,6 +952,45 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
             ctx_.report(DiagnosticFactory::ambiguous_name(c.callee_range, c.callee));
             return nullptr;
         }
+        // A lambda that captured `this`: the enclosing object's member functions.
+        if (m.kind == MemberResult::Kind::None) {
+            if (auto outer = captured_this(c.callee_range)) {
+                const TypeInfo pointer = types.info(outer->type);
+                const MemberResult om = members_.find(types.info(pointer.target).decl, c.callee);
+                if (om.kind == MemberResult::Kind::Methods) {
+                    auto args = bind_args();
+                    if (!args) {
+                        return nullptr;
+                    }
+                    BDeref deref;
+                    deref.cells = types.cells(pointer.target);
+                    deref.pointer = std::move(outer);
+                    auto object = make(pointer.target, true, range, std::move(deref));
+                    object->is_const = pointer.target_const;
+                    return call_candidates(c.callee, {}, std::move(*args), range, c.callee_range, std::move(object),
+                                           true);
+                }
+            }
+        }
+        // A data member that is a function pointer: `f_(3)` calls through this->f_.
+        if (m.kind == MemberResult::Kind::Field && types.is_function_pointer(m.field->type)) {
+            auto pointer = identifier(ast::Identifier{c.callee, {}}, c.callee_range, Use::Value);
+            auto args = bind_args();
+            if (!pointer || !args) {
+                return nullptr;
+            }
+            return indirect_call(to_rvalue(std::move(pointer)), std::move(*args), range);
+        }
+        // A data member that is a function object: `comp_(a, b)` calls this->comp_.operator().
+        if (m.kind == MemberResult::Kind::Field && types.is_record(m.field->type) &&
+            is_function_object(types.info(m.field->type).decl)) {
+            auto object = identifier(ast::Identifier{c.callee, {}}, c.callee_range, Use::Value);
+            auto args = bind_args();
+            if (!object || !args) {
+                return nullptr;
+            }
+            return call_function_object(std::move(object), std::move(*args), range, c.callee_range);
+        }
     }
     if (symbol == nullptr) {
         symbol = ctx_.symbols.lookup(c.callee);
@@ -777,14 +1010,30 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
         ctx_.report(DiagnosticFactory::unknown_function(c.callee_range, c.callee, suggestion));
         return nullptr;
     }
+    ctx_.allow_library_name(symbol, c.callee_range, c.callee);
     switch (symbol->kind) {
         case SymbolKind::Functions: {
             auto args = bind_args();
             if (!args) {
                 return nullptr;
             }
-            return call_candidates(c.callee, symbol->functions, std::move(*args), range, c.callee_range, nullptr,
-                                   false);
+            if (symbol->templates.empty() || ctx_.templates == nullptr) {
+                return call_candidates(c.callee, symbol->functions, std::move(*args), range, c.callee_range, nullptr,
+                                       false);
+            }
+            if (!c.template_args.empty()) {
+                return ctx_.templates->call(c, std::move(*args), range);  // `f<int>(x)`: only the templates
+            }
+            // Ordinary functions and the instances of the templates that share their name.
+            std::vector<const BExpr*> operands;
+            for (const auto& arg : *args) {
+                operands.push_back(arg.get());
+            }
+            std::vector<Callee> candidates = symbol->functions;
+            for (const Callee& instance : ctx_.templates->function_candidates(*symbol, operands, range)) {
+                candidates.push_back(instance);
+            }
+            return call_candidates(c.callee, candidates, std::move(*args), range, c.callee_range, nullptr, false);
         }
         case SymbolKind::Type: {
             const TypeRef type = symbol->type;
@@ -818,6 +1067,15 @@ BExprPtr ExpressionBinder::call(const ast::CallExpr& c, SourceRange range) {
             return ctx_.templates->call(c, std::move(*args), range);
         }
         case SymbolKind::Variable:
+            if (types.is_function_pointer(symbol->type)) {
+                // `f(3)` with `int (*f)(int)`: a call through the pointer.
+                auto target = variable(*symbol, c.callee, c.callee_range);
+                auto args = bind_args();
+                if (!target || !args) {
+                    return nullptr;
+                }
+                return indirect_call(to_rvalue(std::move(target)), std::move(*args), range);
+            }
             if (types.is_record(symbol->type) && is_function_object(types.info(symbol->type).decl)) {
                 // A function object: `f(x)` calls f.operator()(x).
                 auto object = variable(*symbol, c.callee, c.callee_range);
@@ -870,6 +1128,7 @@ BExprPtr ExpressionBinder::method_call(const ast::CallExpr& c, const ast::Member
         return nullptr;
     }
     const std::uint32_t record = types.info(object->type).decl;
+    check_library_member(object->type, callee.member, callee.member_range);
     const MemberResult m = members_.find(record, callee.member);
     if (ctx_.templates->has_member_template(record, callee.member)) {
         std::vector<BExprPtr> args;
@@ -899,8 +1158,39 @@ BExprPtr ExpressionBinder::method_call(const ast::CallExpr& c, const ast::Member
         return nullptr;
     }
     if (m.kind == MemberResult::Kind::Field) {
-        ctx_.report(DiagnosticFactory::not_callable(callee.member_range, callee.member));
-        return nullptr;
+        if (types.is_function_pointer(m.field->type)) {  // `obj.f(3)` calls through the member
+            auto field = member(callee, callee.member_range);
+            std::vector<BExprPtr> args;
+            for (const auto& a : c.args) {
+                auto bound = bind(a);
+                if (!bound) {
+                    return nullptr;
+                }
+                args.push_back(std::move(bound));
+            }
+            if (!field) {
+                return nullptr;
+            }
+            return indirect_call(to_rvalue(std::move(field)), std::move(args), range);
+        }
+        // A data member that is a function object: `obj.comp(a, b)` calls obj.comp.operator().
+        if (!types.is_record(m.field->type) || !is_function_object(types.info(m.field->type).decl)) {
+            ctx_.report(DiagnosticFactory::not_callable(callee.member_range, callee.member));
+            return nullptr;
+        }
+        auto field = member(callee, callee.member_range);
+        std::vector<BExprPtr> args;
+        for (const auto& a : c.args) {
+            auto bound = bind(a);
+            if (!bound) {
+                return nullptr;
+            }
+            args.push_back(std::move(bound));
+        }
+        if (!field) {
+            return nullptr;
+        }
+        return call_function_object(std::move(field), std::move(args), range, callee.member_range);
     }
     std::vector<BExprPtr> args;
     for (const auto& a : c.args) {
@@ -1145,6 +1435,28 @@ BExprPtr ExpressionBinder::construct_temporary(TypeRef type, std::vector<BExprPt
     return e;
 }
 
+BExprPtr ExpressionBinder::list_temporary(TypeRef type, const ast::InitList& list, SourceRange range) {
+    const TypeTable& types = ctx_.types;
+    BTemp temp;
+    temp.cells = std::max<std::uint32_t>(1, types.cells(type));
+    temp.offset = ctx_.allocate_local(temp.cells);
+    BVar slot;
+    slot.offset = temp.offset;
+    slot.cells = temp.cells;
+    auto target = make(type, true, range, slot);
+    std::vector<BStmt> init;
+    if (!ctx_.initializers->initialize_list(std::move(target), type, list, range, init)) {
+        return nullptr;
+    }
+    temp.init_stmts = std::move(init);
+    if (ctx_.initializers->needs_destruction(type)) {
+        ctx_.fn->temporaries.push_back(FunctionContext::Temporary{temp.offset, type});
+    }
+    auto e = make(type, true, range, std::move(temp));
+    e->expiring = true;
+    return e;
+}
+
 // =============================================================================
 // Operators
 // =============================================================================
@@ -1152,13 +1464,28 @@ BExprPtr ExpressionBinder::construct_temporary(TypeRef type, std::vector<BExprPt
 std::vector<Callee> ExpressionBinder::free_operators(std::string_view name, const BExpr& lhs, const BExpr* rhs) {
     TypeTable& types = ctx_.types;
     std::vector<Callee> out;
+    // Operator templates are deduced from the operands, at the whole expression.
+    std::vector<const BExpr*> operands{&lhs};
+    SourceRange range = lhs.range;
+    if (rhs != nullptr) {
+        operands.push_back(rhs);
+        range.end = rhs->range.end;
+    }
+    auto add_unique = [&](const Callee& c) {
+        if (std::find(out.begin(), out.end(), c) == out.end()) {
+            out.push_back(c);
+        }
+    };
     auto add = [&](const Symbol* s) {
-        if (s == nullptr || s->kind != SymbolKind::Functions) {
+        if (s == nullptr || (s->kind != SymbolKind::Functions && s->kind != SymbolKind::Template)) {
             return;
         }
         for (const Callee& c : s->functions) {
-            if (std::find(out.begin(), out.end(), c) == out.end()) {
-                out.push_back(c);
+            add_unique(c);
+        }
+        if (!s->templates.empty() && ctx_.templates != nullptr) {
+            for (const Callee& c : ctx_.templates->function_candidates(*s, operands, range)) {
+                add_unique(c);
             }
         }
     };
@@ -1262,6 +1589,9 @@ BExprPtr ExpressionBinder::unary(const ast::UnaryExpr& u, SourceRange range) {
         if (!operand) {
             return nullptr;
         }
+        if (!operand->lvalue && types.is_function_pointer(operand->type)) {
+            return operand;  // `&twice`: the function's address, as `twice` is
+        }
         if (!operand->lvalue) {
             report_invalid_operands("&", *operand, nullptr, range);
             return nullptr;
@@ -1283,6 +1613,9 @@ BExprPtr ExpressionBinder::unary(const ast::UnaryExpr& u, SourceRange range) {
     }
     operand = to_rvalue(std::move(operand));
     if (u.op == ast::UnaryOp::Deref) {
+        if (types.is_function_pointer(operand->type)) {
+            return to_rvalue(std::move(operand));  // `*f` is the function, which decays back to `f`
+        }
         if (!types.is_pointer(operand->type) || types.is_void(types.info(operand->type).target)) {
             report_invalid_operands("*", *operand, nullptr, range);
             return nullptr;
@@ -1367,8 +1700,32 @@ BExprPtr ExpressionBinder::binary(const ast::BinaryExpr& b, SourceRange range) {
         return nullptr;
     }
     const std::string name = "operator" + std::string(op_text(b.op));
-    if ((types.is_record(lhs->type) || types.is_record(rhs->type)) && has_operator(name, *lhs, rhs.get())) {
+    const bool records = types.is_record(lhs->type) || types.is_record(rhs->type);
+    if (b.op == ast::BinaryOp::ThreeWay) {
+        return three_way(std::move(lhs), std::move(rhs), range);
+    }
+    if (records && has_operator(name, *lhs, rhs.get())) {
         return call_operator(name, std::move(lhs), std::move(rhs), range);
+    }
+    // C++20 rewritten candidates ([over.match.oper]): `a < b` as `(a <=> b) < 0`,
+    // and `a != b` as `!(a == b)`, when the class has only those operators.
+    if (records && ctx_.features.standard_allows(Feature::ThreeWayComparison)) {
+        const bool relational = b.op == ast::BinaryOp::Lt || b.op == ast::BinaryOp::Gt || b.op == ast::BinaryOp::Le ||
+                                b.op == ast::BinaryOp::Ge;
+        if (relational && has_operator("operator<=>", *lhs, rhs.get())) {
+            auto order = call_operator("operator<=>", std::move(lhs), std::move(rhs), range);
+            if (!order) {
+                return nullptr;
+            }
+            return call_operator(name, std::move(order), constant(TypeTable::kInt, 0, range), range);
+        }
+        if (b.op == ast::BinaryOp::Ne && has_operator("operator==", *lhs, rhs.get())) {
+            auto equal = to_condition(call_operator("operator==", std::move(lhs), std::move(rhs), range));
+            if (!equal) {
+                return nullptr;
+            }
+            return make(TypeTable::kBool, false, range, BUnary{UnOp::Not, ScalarKind::Int32, std::move(equal)});
+        }
     }
     // Built-in operators accept classes that convert to a number.
     lhs = to_number(std::move(lhs));
@@ -1377,6 +1734,42 @@ BExprPtr ExpressionBinder::binary(const ast::BinaryExpr& b, SourceRange range) {
         return nullptr;
     }
     return arithmetic(b.op, to_rvalue(std::move(lhs)), to_rvalue(std::move(rhs)), range);
+}
+
+BExprPtr ExpressionBinder::three_way(BExprPtr lhs, BExprPtr rhs, SourceRange range) {
+    // `a <=> b` (C++20): a class's operator<=>, or for numbers std::strong_ordering
+    // (integers) or std::partial_ordering (floating point), from the prelude.
+    const TypeTable& types = ctx_.types;
+    if (!ctx_.features.allow(Feature::ThreeWayComparison, range)) {
+        return nullptr;
+    }
+    if (types.is_record(lhs->type) || types.is_record(rhs->type)) {
+        if (!has_operator("operator<=>", *lhs, rhs.get())) {
+            report_invalid_operands("<=>", *lhs, rhs.get(), range);
+            return nullptr;
+        }
+        return call_operator("operator<=>", std::move(lhs), std::move(rhs), range);
+    }
+    lhs = to_rvalue(std::move(lhs));
+    rhs = to_rvalue(std::move(rhs));
+    if (!lhs || !rhs) {
+        return nullptr;
+    }
+    if (!types.is_arithmetic(lhs->type) || !types.is_arithmetic(rhs->type)) {
+        report_invalid_operands("<=>", *lhs, rhs.get(), range);
+        return nullptr;
+    }
+    const bool floating = types.kind(lhs->type) == TypeKind::Double || types.kind(rhs->type) == TypeKind::Double;
+    const char* helper = floating ? "__cppi_three_way_floating" : "__cppi_three_way";
+    Symbol* symbol = ctx_.symbols.lookup_qualified({"std"}, helper);
+    if (symbol == nullptr || symbol->kind != SymbolKind::Functions) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "<=>"));
+        return nullptr;
+    }
+    std::vector<BExprPtr> args;
+    args.push_back(std::move(lhs));
+    args.push_back(std::move(rhs));
+    return call_candidates(helper, symbol->functions, std::move(args), range, range, nullptr, false);
 }
 
 BExprPtr ExpressionBinder::arithmetic(ast::BinaryOp op, BExprPtr lhs, BExprPtr rhs, SourceRange range) {
@@ -1632,11 +2025,51 @@ BExprPtr ExpressionBinder::conditional(const ast::ConditionalExpr& c, SourceRang
     return make(type, false, range, BConditional{std::move(cond), std::move(a), std::move(b)});
 }
 
+BExprPtr ExpressionBinder::multidimensional_subscript(const ast::SubscriptExpr& s, BExprPtr base, SourceRange range) {
+    // C++23 `obj[i, j]`: the class's operator[] with every index as an argument.
+    const TypeTable& types = ctx_.types;
+    if (!types.is_record(base->type) ||
+        members_.find(types.info(base->type).decl, "operator[]").kind != MemberResult::Kind::Methods) {
+        ctx_.report(DiagnosticFactory::not_subscriptable(s.base->range, types.name(base->type)));
+        return nullptr;
+    }
+    std::vector<BExprPtr> args;
+    auto first = bind(*s.index);
+    if (!first) {
+        return nullptr;
+    }
+    args.push_back(std::move(first));
+    for (const auto& extra : s.more) {
+        auto bound = bind(*extra);
+        if (!bound) {
+            return nullptr;
+        }
+        args.push_back(std::move(bound));
+    }
+    return call_candidates("operator[]", {}, std::move(args), range, range, std::move(base), true);
+}
+
 BExprPtr ExpressionBinder::subscript(const ast::SubscriptExpr& s, SourceRange range) {
     const TypeTable& types = ctx_.types;
     auto base = bind(*s.base);
-    auto index = bind(*s.index);
-    if (!base || !index) {
+    if (!base) {
+        return nullptr;
+    }
+    if (!s.more.empty() && ctx_.features.standard_allows(Feature::MultidimensionalSubscript)) {
+        return multidimensional_subscript(s, std::move(base), range);
+    }
+    auto index = bind(*s.index, s.more.empty() ? Use::Value : Use::Statement);
+    // Before C++23 `a[i, j]` is a comma expression: only the last index counts.
+    for (std::size_t i = 0; i < s.more.size() && index; ++i) {
+        auto next = bind(*s.more[i], i + 1 == s.more.size() ? Use::Value : Use::Statement);
+        if (!next) {
+            return nullptr;
+        }
+        const TypeRef type = next->type;
+        const bool lvalue = next->lvalue;
+        index = make(type, lvalue, range, BComma{std::move(index), std::move(next)});
+    }
+    if (!index) {
         return nullptr;
     }
     if (!types.is_record(base->type)) {
@@ -1710,10 +2143,25 @@ BExprPtr ExpressionBinder::member(const ast::MemberExpr& m, SourceRange range) {
     return member_of(std::move(base), m.member, m.member_range, range, false);
 }
 
+void ExpressionBinder::check_library_member(TypeRef type, const std::string& member, SourceRange range) {
+    if (ctx_.library_depth > 0 || ctx_.templates == nullptr || !ctx_.types.is_record(type)) {
+        return;
+    }
+    const std::string_view library_class = ctx_.templates->library_class_name(type);
+    if (library_class.empty()) {
+        return;
+    }
+    const std::string key = std::string(library_class) + "::" + member;
+    if (const auto since = library::standard_of(key); since && ctx_.options.standard < *since) {
+        ctx_.report(DiagnosticFactory::library_requires_standard(range, "std::" + key, *since));
+    }
+}
+
 BExprPtr ExpressionBinder::member_of(BExprPtr object, const std::string& name, SourceRange name_range,
                                      SourceRange range, bool want_methods) {
     TypeTable& types = ctx_.types;
     const std::uint32_t record = types.info(object->type).decl;
+    check_library_member(object->type, name, name_range);
     const MemberResult m = members_.find(record, name);
     switch (m.kind) {
         case MemberResult::Kind::None:
@@ -1781,6 +2229,33 @@ BExprPtr ExpressionBinder::cast(const ast::CastExpr& c, SourceRange range) {
         ctx_.report(DiagnosticFactory::unsupported_type(range, "auto"));
         return nullptr;
     }
+    if (c.kind == ast::CastKind::List) {
+        // `Order{5, 2}`, `Point{1, 2}`, `int{3}`: direct-list-initialization (C++11).
+        const auto* list = std::get_if<ast::InitList>(&c.operand->node);
+        if (list == nullptr || !ctx_.features.allow(Feature::InitializerLists, range)) {
+            return nullptr;
+        }
+        if (!types.is_scalar(target->type)) {
+            return list_temporary(target->type, *list, range);
+        }
+        if (list->elements.size() > 1) {
+            ctx_.report(DiagnosticFactory::too_many_initializers(range, 1, list->elements.size()));
+            return nullptr;
+        }
+        if (list->elements.empty()) {
+            return constant(target->type, 0, range);  // `int{}` value-initializes
+        }
+        auto value = bind_rvalue(list->elements.front());
+        if (!value) {
+            return nullptr;
+        }
+        if (ctx_.initializers->narrowing(*value, target->type)) {
+            ctx_.report(DiagnosticFactory::narrowing(list->elements.front().range, types.name(value->type),
+                                                     types.name(target->type)));
+            return nullptr;
+        }
+        return convert_to(std::move(value), target->type);
+    }
     if (types.is_void(target->type)) {
         auto operand = bind(*c.operand, Use::Statement);
         if (!operand) {
@@ -1793,6 +2268,20 @@ BExprPtr ExpressionBinder::cast(const ast::CastExpr& c, SourceRange range) {
     auto operand = bind_rvalue(*c.operand);
     if (!operand) {
         return nullptr;
+    }
+    if (types.is_record(target->type)) {
+        // `T(x)` to a class: x itself, a conversion operator of x, or a constructor of T.
+        if (operand->type == target->type) {
+            return operand;
+        }
+        if (types.is_record(operand->type)) {
+            if (auto op = ctx_.overloads->conversion_operator(operand->type, target->type, true)) {
+                return call_conversion(std::move(operand), *op);
+            }
+        }
+        std::vector<BExprPtr> args;
+        args.push_back(std::move(operand));
+        return construct_temporary(target->type, std::move(args), range);
     }
     if (types.is_record(operand->type) && !types.is_record(target->type)) {
         if (auto op = ctx_.overloads->conversion_operator(operand->type, target->type, true)) {
@@ -1883,6 +2372,9 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
             for (const std::uint32_t id : info.constructors) {
                 ctors.push_back(Callee{false, id});
             }
+            for (const Callee& c : ctx_.templates->constructor_candidates(types.info(type).decl, args, range)) {
+                ctors.push_back(c);
+            }
             if (n.array_size) {
                 if (!args.empty()) {
                     ctx_.report(DiagnosticFactory::unsupported_syntax(range, "array new with initializers"));
@@ -1905,6 +2397,9 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
                     return nullptr;
                 }
                 node.loop_temps = ctx_.allocate_local(3);
+                if (ctx_.templates != nullptr) {
+                    ctx_.templates->define_if_pending(ctor, range);  // a class template member, on first use
+                }
                 return make(types.pointer_to(type, resolved->is_const), false, range, std::move(node));
             }
             auto chosen = ctx_.overloads->resolve(info.name, ctors, args, range);
@@ -1917,6 +2412,9 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
             }
             node.constructor = chosen->id;
             node.ctor_args = std::move(*prepared);
+            if (ctx_.templates != nullptr) {
+                ctx_.templates->define_if_pending(chosen->id, range);  // a class template member, on first use
+            }
         } else if (!args.empty()) {
             ctx_.report(DiagnosticFactory::no_matching_function(range, info.name, ctx_.overloads->describe(args)));
             return nullptr;
@@ -1948,13 +2446,40 @@ BExprPtr ExpressionBinder::new_expr(const ast::NewExpr& n, SourceRange range) {
 }
 
 BExprPtr ExpressionBinder::lambda(const ast::LambdaExpr& l, SourceRange range) {
-    TypeTable& types = ctx_.types;
-    if (l.captures_this) {
-        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "capturing this"));
+    if (ctx_.fn == nullptr) {  // lambdas are bound inside a function (the script, at least)
         return nullptr;
     }
+    TypeTable& types = ctx_.types;
     std::vector<DeclarationBinder::Capture> captures;
     std::vector<BExprPtr> sources;  // what each capture is initialized from
+    // `[this]`, `[*this]` (C++17), or a default capture in a member function:
+    // the closure holds the object's address (__this) or a copy of it (__self),
+    // through which the body reaches `this` and the members.
+    const bool in_member = ctx_.fn != nullptr && ctx_.fn->record && ctx_.fn->has_this;
+    if (l.copies_this || l.captures_this || (l.default_capture != 0 && in_member)) {
+        if (l.copies_this && !ctx_.features.allow(Feature::LambdaCopiesThis, range)) {
+            return nullptr;
+        }
+        auto outer = captured_this(range);
+        auto pointer = outer ? std::move(outer) : this_pointer(range);
+        if (!pointer) {
+            return nullptr;
+        }
+        const TypeInfo target = types.info(pointer->type);
+        if (l.copies_this) {
+            BDeref deref;
+            deref.cells = types.cells(target.target);
+            deref.pointer = std::move(pointer);
+            auto object = make(target.target, true, range, std::move(deref));
+            object->is_const = target.target_const;
+            captures.push_back(DeclarationBinder::Capture{"__self", false, target.target, false});
+            sources.push_back(std::move(object));
+        } else {
+            const TypeRef type = pointer->type;
+            captures.push_back(DeclarationBinder::Capture{"__this", false, type, false});
+            sources.push_back(std::move(pointer));
+        }
+    }
     std::set<std::string> taken;
     for (const auto& p : l.function->params) {
         taken.insert(p.declarator.name);
@@ -2043,6 +2568,38 @@ BExprPtr ExpressionBinder::lambda(const ast::LambdaExpr& l, SourceRange range) {
     return e;
 }
 
+BExprPtr ExpressionBinder::allocate(TypeRef type, BExprPtr count, SourceRange range) {
+    TypeTable& types = ctx_.types;
+    if (!count) {
+        return nullptr;
+    }
+    auto n = convert_to(to_rvalue(std::move(count)), TypeTable::kLong);
+    if (!n) {
+        return nullptr;
+    }
+    BNew node;  // no constructor, no headers: __cppi_construct builds each element
+    node.elem_cells = std::max<std::uint32_t>(1, types.cells(type));
+    node.count = std::move(n);
+    return make(types.pointer_to(type), false, range, std::move(node));
+}
+
+BExprPtr ExpressionBinder::deallocate(BExprPtr pointer, SourceRange range) {
+    const TypeTable& types = ctx_.types;
+    if (!pointer) {
+        return nullptr;
+    }
+    pointer = to_rvalue(std::move(pointer));
+    if (!types.is_pointer(pointer->type)) {
+        report_invalid_operands("__cppi_deallocate", *pointer, nullptr, range);
+        return nullptr;
+    }
+    BDelete node;  // no destructor: __cppi_destroy ran it on each element still alive
+    node.array = true;
+    node.elem_cells = std::max<std::uint32_t>(1, types.cells(types.info(pointer->type).target));
+    node.pointer = std::move(pointer);
+    return make(TypeTable::kVoid, false, range, std::move(node));
+}
+
 BExprPtr ExpressionBinder::delete_expr(const ast::DeleteExpr& d, SourceRange range) {
     TypeTable& types = ctx_.types;
     auto pointer = bind_rvalue(*d.operand);
@@ -2066,6 +2623,9 @@ BExprPtr ExpressionBinder::delete_expr(const ast::DeleteExpr& d, SourceRange ran
                 node.loop_temps = ctx_.allocate_local(2);
             }
         }
+    }
+    if (node.destructor && ctx_.templates != nullptr) {
+        ctx_.templates->define_if_pending(*node.destructor, range);  // a class template member, on first use
     }
     node.pointer = std::move(pointer);
     return make(TypeTable::kVoid, false, range, std::move(node));

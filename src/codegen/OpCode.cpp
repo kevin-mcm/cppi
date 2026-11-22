@@ -79,6 +79,7 @@ std::string_view to_string(OpCode op) noexcept {
         case OpCode::JumpCompare: return "JUMP_CMP";
         case OpCode::Call: return "CALL";
         case OpCode::CallVirtual: return "CALL_VIRTUAL";
+        case OpCode::CallIndirect: return "CALL_INDIRECT";
         case OpCode::Ret: return "RET";
         case OpCode::CallHost: return "CALL_HOST";
         case OpCode::Intrinsic: return "INTRINSIC";

@@ -10,6 +10,7 @@
 #include "sema/ExpressionBinder.hpp"
 #include "sema/InitializerBinder.hpp"
 #include "sema/Intrinsics.hpp"
+#include "sema/LvalueCloner.hpp"
 #include "sema/TemplateEngine.hpp"
 #include "sema/TypeResolver.hpp"
 #include "support/DiagnosticFactory.hpp"
@@ -277,7 +278,68 @@ void StatementBinder::bind(const ast::Stmt& stmt, std::vector<BStmt>*& out) {
     }
 }
 
+bool StatementBinder::bind_in_place(const ast::CallExpr& call, SourceRange range, std::vector<BStmt>& out) {
+    const bool construct = call.callee == "__cppi_construct" || call.callee == "__cppi_construct_moved";
+    // __cppi_construct(p) value-initializes *p; the others take exactly their arguments.
+    const bool arity = call.callee == "__cppi_construct" ? (call.args.size() == 1 || call.args.size() == 2)
+                                                         : call.args.size() == (construct ? 2U : 1U);
+    if (ctx_.library_depth == 0 || !call.scope.empty() || !call.template_args.empty() ||
+        (!construct && call.callee != "__cppi_destroy") || !arity) {
+        return false;
+    }
+    const TypeTable& types = ctx_.types;
+    auto pointer = ctx_.expressions->bind(call.args.front());
+    if (!pointer) {
+        return true;
+    }
+    pointer = ctx_.expressions->to_rvalue(std::move(pointer));
+    if (!types.is_pointer(pointer->type)) {
+        ctx_.report(DiagnosticFactory::invalid_operands(range, call.callee, types.name(pointer->type), std::nullopt));
+        return true;
+    }
+    const TypeRef type = types.info(pointer->type).target;
+    // The pointer (`data_ + i`) is kept in a frame cell, so the target `*cell`
+    // can be cloned: constructing and destroying refer to it more than once.
+    const TypeRef pointer_type = pointer->type;
+    const std::uint32_t cell = ctx_.allocate_local(1);
+    const auto slot = [&] { return ExpressionBinder::make(pointer_type, true, range, BTemp{cell, 1, nullptr, {}}); };
+    out.push_back(wrap(range, BStore{slot(), std::move(pointer)}));
+    BDeref deref;
+    deref.cells = types.cells(type);
+    deref.pointer = ctx_.expressions->to_rvalue(slot());
+    auto target = ExpressionBinder::make(type, true, range, std::move(deref));
+    if (!construct) {
+        ctx_.initializers->destroy(LvalueCloner::clone(*target), type, out);
+        out.push_back(wrap(range, BUninit{std::move(target), std::max<std::uint32_t>(1, types.cells(type))}));
+        return true;
+    }
+    if (call.args.size() == 1) {
+        ctx_.initializers->construct(std::move(target), type, {}, range, out);  // value-initialized: T()
+        return true;
+    }
+    const std::size_t mark = ctx_.fn->temporaries.size();
+    auto value = ctx_.expressions->bind(call.args.back());
+    if (!value) {
+        drop_temporaries(mark);
+        return true;
+    }
+    if (call.callee == "__cppi_construct_moved" && value->lvalue) {
+        value->expiring = true;  // like std::move(value): T(T&&) if T has one
+    }
+    std::vector<BExprPtr> args;
+    args.push_back(std::move(value));
+    ctx_.initializers->construct(std::move(target), type, std::move(args), range, out);
+    for (auto& cleanup : release_temporaries(mark)) {
+        out.push_back(std::move(cleanup));
+    }
+    return true;
+}
+
 void StatementBinder::bind_expression(const ast::ExprStmt& s, SourceRange range, std::vector<BStmt>& out) {
+    if (const auto* call = std::get_if<ast::CallExpr>(&s.expr.node);
+        call != nullptr && bind_in_place(*call, range, out)) {
+        return;
+    }
     const std::size_t mark = ctx_.fn->temporaries.size();
     auto e = ctx_.expressions->bind(s.expr, ExpressionBinder::Use::Statement);
     if (!e) {
@@ -493,16 +555,57 @@ void StatementBinder::bind_for(const ast::ForStmt& s, SourceRange range, std::ve
     out.push_back(wrap(range, std::move(outer)));
 }
 
+BExprPtr StatementBinder::braced_range(const ast::InitList& list, SourceRange range) {
+    // `for (int x : {1, 2, 3})`: the range is a std::initializer_list<E>, E
+    // deduced from the elements (all of the same type, as for `auto`).
+    if (list.elements.empty()) {
+        ctx_.report(DiagnosticFactory::template_deduction(range, "std::initializer_list"));
+        return nullptr;
+    }
+    std::optional<TypeRef> element;
+    for (const auto& item : list.elements) {
+        // A trial: only the type matters, so nothing it reports or creates stays.
+        const std::size_t mark = ctx_.fn->temporaries.size();
+        ctx_.sink.mute();
+        auto bound = ctx_.expressions->to_rvalue(ctx_.expressions->bind(item));
+        ctx_.sink.unmute();
+        ctx_.fn->temporaries.erase(ctx_.fn->temporaries.begin() + static_cast<std::ptrdiff_t>(mark),
+                                   ctx_.fn->temporaries.end());
+        if (!bound || (element && *element != bound->type)) {
+            ctx_.report(DiagnosticFactory::template_deduction(range, "std::initializer_list"));
+            return nullptr;
+        }
+        element = bound->type;
+    }
+    if (!element) {
+        return nullptr;
+    }
+    const auto type = ctx_.templates->instantiate_library("initializer_list", {*element}, range);
+    if (!type) {
+        ctx_.report(DiagnosticFactory::unsupported_syntax(range, "braced list here"));
+        return nullptr;
+    }
+    return ctx_.expressions->list_temporary(*type, list, range);
+}
+
 void StatementBinder::bind_range_for(const ast::RangeForStmt& s, SourceRange range, std::vector<BStmt>& out) {
     TypeTable& types = ctx_.types;
     ctx_.symbols.push(Scope::Kind::Block, range.end);
-    auto container = ctx_.expressions->bind(*s.range_expr);
+    const std::size_t mark = ctx_.fn->temporaries.size();
+    const auto* list = std::get_if<ast::InitList>(&s.range_expr->node);
+    auto container = list != nullptr ? braced_range(*list, s.range_expr->range) : ctx_.expressions->bind(*s.range_expr);
     if (!container) {
+        drop_temporaries(mark);
         ctx_.symbols.pop();
         return;
     }
     if (types.is_record(container->type)) {
         bind_range_for_class(s, std::move(container), range, out);
+        // The range's temporaries (a returned vector, the array behind {1, 2})
+        // live until the loop ends, then are destroyed ([stmt.ranged]).
+        for (auto& cleanup : release_temporaries(mark)) {
+            out.push_back(std::move(cleanup));
+        }
         ctx_.symbols.pop();
         return;
     }

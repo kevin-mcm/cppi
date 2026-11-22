@@ -265,6 +265,11 @@ Diagnostic DiagnosticFactory::unsupported_syntax(SourceRange range, const std::s
     return make(DiagCode::UnsupportedSyntax, range, {{"construct", construct}});
 }
 
+Diagnostic DiagnosticFactory::library_requires_standard(SourceRange range, const std::string& name, Standard standard) {
+    return make(DiagCode::LibraryRequiresStandard, range,
+                {{"name", name}, {"standard", std::string(to_string(standard))}});
+}
+
 Diagnostic DiagnosticFactory::budget_exhausted(SourceRange range, std::uint64_t budget) {
     const auto clamped =
         static_cast<std::int64_t>(std::min<std::uint64_t>(budget, std::numeric_limits<std::int64_t>::max()));
@@ -304,6 +309,14 @@ Diagnostic DiagnosticFactory::no_operator(SourceRange range, std::string_view op
 
 Diagnostic DiagnosticFactory::instantiated_from(SourceRange range, const std::string& function) {
     return make(DiagCode::InstantiatedFrom, range, {{"function", function}}, Severity::Note);
+}
+
+Diagnostic DiagnosticFactory::narrowing(SourceRange range, const std::string& from, const std::string& to) {
+    return make(DiagCode::Narrowing, range, {{"from", from}, {"to", to}});
+}
+
+Diagnostic DiagnosticFactory::designator_order(SourceRange range, const std::string& member) {
+    return make(DiagCode::DesignatorOrder, range, {{"member", member}});
 }
 
 Diagnostic DiagnosticFactory::constraints_not_satisfied(SourceRange range, std::string_view function,

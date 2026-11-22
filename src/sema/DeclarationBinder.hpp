@@ -17,6 +17,7 @@
 #include "ast/Stmt.hpp"
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <optional>
@@ -115,9 +116,20 @@ public:
 
     /// Creates a function entry (FunctionInfo + empty BoundFunction).
     std::uint32_t add_function(FunctionInfo info);
+    /// The body of a defaulted operator== or operator<=> (C++20), written as
+    /// statements and bound like the player's code; null after an error.
+    const std::vector<ast::Stmt>* synthesize_comparison(std::uint32_t id);
     /// Binds a function's body (parameters, statements, implicit parts of
     /// constructors and destructors).
     void define_body(std::uint32_t id, const ast::FunctionDecl* decl);
+
+    /// While set, bind_record leaves the bodies of the non-virtual member
+    /// functions written in the class unbound and appends them here: a class
+    /// template instance defines each one on first use ([temp.inst]), so a
+    /// member some type does not support is an error only if it is used.
+    std::vector<std::pair<std::uint32_t, const ast::FunctionDecl*>>*
+        deferred_bodies =  // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+        nullptr;
 
 private:
     /// A resolved function signature.
@@ -208,7 +220,9 @@ private:
     std::map<const Symbol*, StaticMember> statics_;
     /// The player's `main`, if declared.
     std::optional<std::uint32_t> main_;
-    bool deduce_next_ = false;                             ///< the next define_body deduces its return type
+    bool deduce_next_ = false;  ///< the next define_body deduces its return type
+    /// Bodies written for defaulted comparisons (kept: the bound tree points into them).
+    std::deque<std::vector<ast::Stmt>> synthesized_;
     const std::vector<TypeRef>* generic_autos_ = nullptr;  ///< types for `auto` parameters being resolved
 };
 

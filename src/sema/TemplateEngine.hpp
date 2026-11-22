@@ -42,13 +42,31 @@ public:
                                 std::vector<Scope*> home, bool is_const, bool deduce_return);
     /// Registers a member function template of `record`.
     void declare_member(std::uint32_t record, const ast::MethodTemplate& method);
+    /// Key of a record's constructor templates in `RecordInfo::method_templates`.
+    static constexpr std::string_view kConstructorKey = "<constructor>";
     /// Instances of the member function templates `name` of `record` (or of
     /// its closest base that has them) that can take `args`.
     [[nodiscard]] std::vector<Callee> member_candidates(std::uint32_t record, const std::string& name,
                                                         const std::vector<ast::TypeDesc>& explicit_descs,
                                                         const std::vector<BExprPtr>& args, SourceRange range);
+    /// Instances of the constructor templates of `record` that can take `args`
+    /// (candidates next to its ordinary constructors). Not for copying the class itself.
+    [[nodiscard]] std::vector<Callee> constructor_candidates(std::uint32_t record, const std::vector<BExprPtr>& args,
+                                                             SourceRange range);
+    [[nodiscard]] std::vector<Callee> constructor_candidates(std::uint32_t record,
+                                                             const std::vector<const BExpr*>& args, SourceRange range);
     /// Does `record` (or a base) have member function templates called `name`?
+    /// The name of the library class template `type` is an instance of ("optional"), or empty.
+    [[nodiscard]] std::string_view library_class_name(TypeRef type) const;
     [[nodiscard]] bool has_member_template(std::uint32_t record, std::string_view name) const;
+    /// Instances of the function templates of `symbol` whose template arguments
+    /// deduce from `args`: candidates next to its ordinary overloads, for a
+    /// call `f(x)` or an operator `a < b`.
+    [[nodiscard]] std::vector<Callee> function_candidates(const Symbol& symbol, const std::vector<const BExpr*>& args,
+                                                          SourceRange range);
+    /// True if every template of `symbol` is a function template (no class
+    /// template or concept), so ordinary functions may share its name.
+    [[nodiscard]] bool function_templates_only(const Symbol& symbol) const;
 
     /// `Box<int>`, `std::vector<int>`.
     [[nodiscard]] std::optional<TypeRef> instantiate_type(const ast::TypeSpec& spec);
@@ -72,15 +90,42 @@ public:
 
     /// The class template and arguments `type` was instantiated from.
     [[nodiscard]] std::optional<std::pair<std::uint32_t, std::vector<TypeRef>>> origin(TypeRef type) const;
+    /// True if template `id` is the standard library's template `name`.
+    [[nodiscard]] bool is_library_template(std::uint32_t id, std::string_view name) const;
+    /// `std::name<args...>`, a class template of the standard library
+    /// (`for (int x : {1, 2})` needs std::initializer_list<int>).
+    [[nodiscard]] std::optional<TypeRef> instantiate_library(std::string_view name, const std::vector<TypeRef>& args,
+                                                             SourceRange range);
+
+    /// Binds the body of `function` if it is a member of a class template
+    /// instance not defined yet (members are defined on first use); `site`
+    /// is the use, where errors inside the standard library are reported.
+    void define_if_pending(std::uint32_t function, SourceRange site);
 
 private:
+    /// A member function of a class template instance whose body is bound on first use.
+    struct PendingMember {
+        std::uint32_t template_id = 0;            ///< the class template
+        std::vector<TypeRef> args;                ///< its arguments
+        TypeRef type = 0;                         ///< the instance
+        const ast::FunctionDecl* decl = nullptr;  ///< the member's declaration
+    };
+    /// Function id -> its pending body.
+    std::map<std::uint32_t, PendingMember> pending_;
+
     /// Template parameter name -> deduced type.
     using Bindings = std::map<std::string, TypeRef, std::less<>>;
 
+    /// The template argument `desc` for parameter `index` of `t`: a type, or for a
+    /// non-type parameter a template_value() of the constant it denotes.
+    [[nodiscard]] std::optional<TypeRef> template_arg(const TemplateInfo& t, std::size_t index,
+                                                      const ast::TypeDesc& desc);
     /// The instance of function template `id` for `args` (made on first use).
     [[nodiscard]] std::optional<std::uint32_t> instantiate_function(std::uint32_t id, const std::vector<TypeRef>& args,
                                                                     SourceRange range);
     /// The class type `name<descs...>` names, through `symbol`.
+    /// What calling a `callable` with one `argument` returns (`__call_result<F, A>`).
+    [[nodiscard]] std::optional<TypeRef> call_result(TypeRef callable, TypeRef argument, SourceRange range);
     [[nodiscard]] std::optional<TypeRef> instantiate_named(Symbol* symbol, const std::vector<ast::TypeDesc>& descs,
                                                            const std::string& name, SourceRange range);
     /// The instance of class template `id` for `args` (made on first use).
@@ -94,7 +139,7 @@ private:
     /// Deduces the template arguments of a function template for `args`.
     [[nodiscard]] std::optional<std::vector<TypeRef>> deduce_all(const TemplateInfo& t, const ast::FunctionDecl& decl,
                                                                  const std::vector<TypeRef>& explicit_args,
-                                                                 const std::vector<BExprPtr>& args);
+                                                                 const std::vector<const BExpr*>& args);
     /// The concept template a name refers to, or nullopt.
     [[nodiscard]] std::optional<std::uint32_t> find_concept(const std::vector<std::string>& scope,
                                                             const std::string& name);

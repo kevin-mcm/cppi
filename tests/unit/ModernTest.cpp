@@ -24,7 +24,10 @@ using cppi_test::standard;
 namespace {
 
 const Options cpp11 = standard(Standard::Cpp11);
+const Options cpp14 = standard(Standard::Cpp14);
 const Options cpp17 = standard(Standard::Cpp17);
+const Options cpp20 = standard(Standard::Cpp20);
+const Options cpp23 = standard(Standard::Cpp23);
 
 }  // namespace
 
@@ -136,7 +139,7 @@ TEST(Modern, StdStringBehavesLikeAValue) {
         for (int i = 0; i < 3; ++i) if (words[i].size() > longest.size()) longest = words[i];
         cout << "|" << longest << "|" << name.substr(4, 4);
     )";
-    EXPECT_EQ(printed(program), "Ada Lovelace|Ada|12|1|-120|banana|Love");
+    EXPECT_EQ(printed(program, cpp11), "Ada Lovelace|Ada|12|1|-120|banana|Love");
 }
 
 TEST(Modern, TemporariesAndCopiesRunConstructorsAndDestructors) {
@@ -328,7 +331,7 @@ TEST(Modern, MoveSemanticsDeletedFunctionsAndSmartPointers) {
         }
         cout << a.use_count() << " ";
     )";
-    auto r = cppi_test::completes(program, cpp11);
+    auto r = cppi_test::completes(program, cpp14);  // make_unique
     EXPECT_EQ(r.result.output, "on empty 4 on 2 1 off off ");
     EXPECT_TRUE(r.result.diagnostics.empty());
 
@@ -520,23 +523,24 @@ TEST(Modern, AClassWithoutTheOperatorSaysSo) {
         EXPECT_FALSE(r.compiled.ok()) << source;
         return r.compiled.diagnostics;
     };
-    // std::sort needs operator<, which cppi's std::pair does not have: the
-    // error names the operator and the type, at the player's call, and a note
-    // says which library function needed it.
+    // std::sort needs operator<; std::pair's compares the members, so a pair
+    // of a struct without < cannot be sorted: the error names the operator and
+    // the member's type, at the player's call, once, and a note says which
+    // library function needed it.
     auto pairs = errors(R"(#include <vector>
 #include <algorithm>
-std::vector<std::pair<int, int>> v;
-v.push_back(std::make_pair(2, 1));
+struct P { int x; };
+std::vector<std::pair<P, int>> v;
 std::sort(v.begin(), v.end());
 )");
     ASSERT_EQ(pairs.size(), 2U);
     EXPECT_EQ(pairs[0].code, DiagCode::NoOperator);
     EXPECT_EQ(pairs[0].arg_text("op"), "<");
-    EXPECT_EQ(pairs[0].arg_text("type"), "pair<int, int>");
+    EXPECT_EQ(pairs[0].arg_text("type"), "P");
     EXPECT_EQ(pairs[0].range.begin.line, 5);
     EXPECT_EQ(pairs[1].code, DiagCode::InstantiatedFrom);
     EXPECT_EQ(pairs[1].severity, Severity::Note);
-    EXPECT_EQ(pairs[1].arg_text("function"), "std::sort<pair<int, int>>");
+    EXPECT_EQ(pairs[1].arg_text("function"), "std::sort<pair<P, int>>");
     EXPECT_EQ(pairs[1].range, pairs[0].range);
 
     // A struct of the player's, in the library and in the player's own code.
@@ -597,4 +601,862 @@ TEST(Modern, NoOperatorOnlyWhenTheOperatorIsMissing) {
     ASSERT_FALSE(r.compiled.ok());
     EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoDefaultConstructor);
     EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 3);
+}
+
+TEST(Modern, FreeOperatorTemplatesAreFound) {
+    // An operator written as a function template is deduced like any other
+    // function template, also from the namespace of the operands' class.
+    EXPECT_EQ(printed(R"(
+        template <class A, class B> struct Pr { A first; B second; Pr(const A& a, const B& b) : first(a), second(b) {} };
+        template <class A, class B> bool operator<(const Pr<A, B>& x, const Pr<A, B>& y) {
+            return x.first < y.first || (!(y.first < x.first) && x.second < y.second);
+        }
+        template <class A, class B> bool operator==(const Pr<A, B>& x, const Pr<A, B>& y) {
+            return x.first == y.first && x.second == y.second;
+        }
+        namespace geo {
+            template <class T> struct V { T x; };
+            template <class T> bool operator<(const V<T>& a, const V<T>& b) { return a.x < b.x; }
+        }
+        Pr<int, int> a(1, 5);
+        Pr<int, int> b(1, 6);
+        geo::V<int> p;
+        p.x = 1;
+        geo::V<int> q;
+        q.x = 2;
+        std::cout << (a < b) << (b < a) << (a == a) << (a == b) << " " << (p < q) << (q < p);
+    )"),
+              "1010 10");
+
+    // A function template may share its name with ordinary functions, declared
+    // before or after them; on equal conversions the ordinary function wins.
+    EXPECT_EQ(printed(R"(
+        int f(int) { return 1; }
+        template <class T> int f(T) { return 2; }
+        template <class T> int g(T) { return 2; }
+        int g(int) { return 1; }
+        std::cout << f(1) << f(2.5) << f<int>(1) << g(1) << g('c');
+    )"),
+              "12212");
+
+    // A template whose parameters cannot be deduced from the operands is not a candidate.
+    auto r = run(R"(template <class A, class B> struct Pr { A first; B second; };
+template <class A, class B> bool operator<(const Pr<A, B>& x, const Pr<A, B>& y) { return x.first < y.first; }
+template <class T> struct Box { T v; };
+Box<int> x;
+Box<int> y;
+bool r = x < y;
+)");
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("type"), "Box<int>");
+    EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 6);
+}
+
+TEST(Modern, PairComparesFirstThenSecond) {
+    EXPECT_EQ(printed(R"(
+        std::pair<int, int> a(1, 5);
+        std::pair<int, int> b(2, 0);
+        std::pair<int, int> c(1, 6);
+        std::cout << (a < b) << " " << (a < c) << " " << (a == std::make_pair(1, 5)) << " "
+                  << (a != std::make_pair(1, 5)) << " " << (b >= a) << " " << (c > a) << (a <= a) << (b > c);
+    )"),
+              "1 1 1 0 1 111");
+}
+
+TEST(Modern, SortingPairsNeedsNoComparator) {
+    EXPECT_EQ(printed(R"(
+        std::vector<std::pair<int, int> > v;
+        v.push_back(std::make_pair(2, 1));
+        v.push_back(std::make_pair(1, 5));
+        v.push_back(std::make_pair(1, 2));
+        std::sort(v.begin(), v.end());
+        for (int i = 0; i < 3; ++i) {
+            std::cout << v[i].first << "," << v[i].second << " ";
+        }
+    )"),
+              "1,2 1,5 2,1 ");
+}
+
+TEST(Modern, PairOfAClassWithoutLessHasNoLess) {
+    // std::pair's operator< compares the members with <: a member type without
+    // it is reported at the player's comparison, naming that type.
+    auto r = run(R"(struct P { int x; };
+std::pair<P, int> a;
+std::pair<P, int> b;
+bool less = a < b;
+)");
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("op"), "<");
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("type"), "P");
+    EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 4);
+    // Once, although the operator compares `first` twice, and without a
+    // warning about the operator's own return: only the note follows.
+    ASSERT_EQ(r.compiled.diagnostics.size(), 2U);
+    EXPECT_EQ(r.compiled.diagnostics[1].code, DiagCode::InstantiatedFrom);
+    EXPECT_EQ(r.compiled.diagnostics[1].arg_text("function"), "std::operator< <P, int>");
+}
+
+TEST(Modern, AReturnWithAnErrorIsNotAMissingReturn) {
+    // The error is the missing operator; E0222 `missing-return` would only add noise.
+    auto r = run("struct P { int x; };\nbool less(P a, P b) { return a < b; }\n");
+    ASSERT_EQ(r.compiled.diagnostics.size(), 1U);
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    // A function that really can end without returning still gets the warning.
+    auto w = run("int f(int x) { if (x > 0) { return 1; } }\nint y = f(1);\n");
+    ASSERT_EQ(w.compiled.diagnostics.size(), 1U);
+    EXPECT_EQ(w.compiled.diagnostics[0].code, DiagCode::MissingReturn);
+}
+
+TEST(Modern, AVectorDoesNotConstructItsCapacity) {
+    EXPECT_EQ(printed(R"(
+        struct C { C() { std::cout << "c"; } };
+        std::vector<C> v;
+        v.reserve(8);
+        std::cout << v.size() << v.capacity();
+    )",
+                      cpp17),
+              "08");
+}
+
+TEST(Modern, AVectorNeedsNoDefaultConstructor) {
+    EXPECT_EQ(printed(R"(
+        struct N { int x; N(int v) : x(v) {} };
+        std::vector<N> v;
+        v.push_back(N(1));
+        v.push_back(N(2));
+        std::cout << v[0].x << v[1].x << v.size();
+    )",
+                      cpp17),
+              "122");
+}
+
+TEST(Modern, PopBackAndClearDestroyElements) {
+    // Each temporary D(i) dies after its push_back; pop_back and clear destroy
+    // the elements they remove, and the vector's end has nothing left to destroy.
+    EXPECT_EQ(printed(R"(
+        struct D { int id; D(int i) : id(i) {} ~D() { std::cout << "~" << id; } };
+        {
+            std::vector<D> v;
+            v.reserve(3);
+            v.push_back(D(1));
+            v.push_back(D(2));
+            v.push_back(D(3));
+            std::cout << "|";
+            v.pop_back();
+            std::cout << "|";
+            v.clear();
+            std::cout << "|";
+        }
+    )",
+                      cpp17),
+              "~1~2~3|~3|~1~2|");
+}
+
+TEST(Modern, GrowingMovesOrCopiesEachElementOnce) {
+    // 5 copies made by push_back of an lvalue, then 4 relocations at the
+    // 4 -> 8 growth: moves, as the move constructor is noexcept.
+    EXPECT_EQ(printed(R"(
+        int copies = 0;
+        int moves = 0;
+        struct M { M() {} M(const M&) { ++copies; } M(M&&) noexcept { ++moves; } };
+        std::vector<M> v;
+        v.reserve(4);
+        M m;
+        for (int i = 0; i < 5; ++i) {
+            v.push_back(m);
+        }
+        std::cout << copies << moves << (copies + moves);
+    )",
+                      cpp17),
+              "549");
+}
+
+TEST(Modern, AReferenceIntoAVectorDiesWhenItGrows) {
+    // cppi-farm's iterator-invalidation level: growing frees the old storage.
+    auto d = runtime_error(R"(std::vector<int> v;
+v.push_back(1);
+int& r = v[0];
+v.push_back(2);
+v.push_back(3);
+v.push_back(4);
+v.push_back(5);
+int x = r;
+)",
+                           cpp17);
+    EXPECT_EQ(d.code, DiagCode::UseAfterFree);
+    EXPECT_EQ(d.range.begin.line, 8);
+}
+
+TEST(Modern, AnUnusedMemberIsNotInstantiated) {
+    // [temp.inst]: a class template instance defines a member function only
+    // when it is used, so W<P> exists although W's operator< cannot compare P.
+    EXPECT_EQ(printed(R"(
+        template <class A> struct W { A v; bool operator<(const W& o) const { return v < o.v; } };
+        struct P { int x; };
+        W<P> a;
+        W<int> b;
+        b.v = 0;
+        W<int> c;
+        c.v = 1;
+        std::vector<P> ps;
+        ps.push_back(P());
+        std::map<char, P> m;
+        m['a'].x = 3;
+        std::cout << (b < c) << ps.size() << m['a'].x;
+    )",
+                      cpp17),
+              "113");
+}
+
+TEST(Modern, AUsedMemberReportsItsError) {
+    // Using the member reports its error, at the use for the standard library.
+    auto r = run(R"(template <class A> struct W { A v; bool operator<(const W& o) const { return v < o.v; } };
+struct P { int x; };
+W<P> a;
+W<P> b;
+bool less = a < b;
+)",
+                 cpp17);
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NoOperator);
+    EXPECT_EQ(r.compiled.diagnostics[0].arg_text("type"), "P");
+
+    auto resize = run("struct N { int x; N(int v) : x(v) {} };\nstd::vector<N> v;\nv.resize(3);\n", cpp17);
+    ASSERT_FALSE(resize.compiled.ok());
+    EXPECT_EQ(resize.compiled.diagnostics[0].code, DiagCode::NoDefaultConstructor);
+    EXPECT_EQ(resize.compiled.diagnostics[0].range.begin.line, 3);
+}
+
+TEST(Modern, SortWithStdGreater) {
+    EXPECT_EQ(printed(R"(#include <functional>
+        std::vector<int> v;
+        v.push_back(2);
+        v.push_back(5);
+        v.push_back(1);
+        std::sort(v.begin(), v.end(), std::greater<int>());
+        std::cout << v[0] << v[1] << v[2] << " ";
+        std::sort(v.begin(), v.end(), std::less<int>());
+        std::cout << v[0] << v[1] << v[2] << " ";
+        std::less<int> lt;
+        std::equal_to<char> eq;
+        std::greater<std::pair<int, int>> gp;
+        std::cout << lt(1, 2) << lt(2, 1) << eq('a', 'a') << gp(std::make_pair(2, 0), std::make_pair(1, 9));
+    )",
+                      cpp17),
+              "521 125 1011");
+}
+
+TEST(Modern, QueueIsFirstInFirstOut) {
+    EXPECT_EQ(printed(R"(#include <queue>
+        std::queue<int> q;
+        for (int i = 1; i <= 6; ++i) {
+            q.push(i);
+        }
+        std::cout << q.front() << q.back() << q.size();
+        q.pop();
+        q.pop();
+        q.push(7);
+        while (!q.empty()) {
+            std::cout << q.front();
+            q.pop();
+        }
+    )",
+                      cpp17),
+              "16634567");
+}
+
+TEST(Modern, QueuePopDestroysTheFront) {
+    EXPECT_EQ(printed(R"(#include <queue>
+        struct D { int id; D(int i) : id(i) {} ~D() { std::cout << "~" << id; } };
+        {
+            std::queue<D> q;
+            q.push(D(1));
+            q.push(D(2));
+            std::cout << "|";
+            q.pop();
+            std::cout << "|";
+        }
+    )",
+                      cpp17),
+              "~1~2|~1|~2");
+}
+
+TEST(Modern, StackIsLastInFirstOut) {
+    EXPECT_EQ(printed(R"(#include <stack>
+        std::stack<int> s;
+        s.push(1);
+        s.push(2);
+        s.push(3);
+        std::cout << s.top() << s.size();
+        s.pop();
+        std::cout << s.top();
+    )",
+                      cpp17),
+              "332");
+}
+
+TEST(Modern, PriorityQueueTopIsTheLargest) {
+    EXPECT_EQ(printed(R"(#include <queue>
+        std::priority_queue<int> pq;
+        pq.push(3);
+        pq.push(9);
+        pq.push(1);
+        pq.push(5);
+        while (!pq.empty()) {
+            std::cout << pq.top();
+            pq.pop();
+        }
+    )",
+                      cpp17),
+              "9531");
+}
+
+TEST(Modern, PriorityQueueWithGreaterTopIsTheSmallest) {
+    // Dijkstra's open set: (cost, tile) pairs, cheapest first.
+    EXPECT_EQ(printed(R"(#include <queue>
+        std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<std::pair<int, int>>> open;
+        open.push(std::make_pair(4, 1));
+        open.push(std::make_pair(2, 7));
+        open.push(std::make_pair(2, 3));
+        open.push(std::make_pair(9, 0));
+        while (!open.empty()) {
+            std::cout << open.top().first << open.top().second << ",";
+            open.pop();
+        }
+    )",
+                      cpp17),
+              "23,27,41,90,");
+}
+
+TEST(Modern, PoppingAnEmptyQueueIsOutOfBounds) {
+    // Undefined behavior in real C++: cppi stops with E0503, as vector::back does.
+    EXPECT_EQ(runtime_error("std::queue<int> q;\nq.pop();\n", cpp17).code, DiagCode::OutOfBounds);
+    EXPECT_EQ(runtime_error("std::queue<int> q;\nint x = q.front();\n", cpp17).code, DiagCode::OutOfBounds);
+    EXPECT_EQ(runtime_error("std::stack<int> s;\nint x = s.top();\n", cpp17).code, DiagCode::OutOfBounds);
+    EXPECT_EQ(runtime_error("std::priority_queue<int> p;\np.pop();\n", cpp17).code, DiagCode::OutOfBounds);
+    auto d = runtime_error("std::queue<int> q;\nq.push(1);\nq.pop();\nq.pop();\n", cpp17);
+    EXPECT_EQ(d.code, DiagCode::OutOfBounds);
+    EXPECT_EQ(d.range.begin.line, 4);
+}
+
+TEST(Modern, ADataMemberThatIsAFunctionObjectCanBeCalled) {
+    // `f(n)` inside the class and `h.f(5)`, `p->f(6)` outside call the member's operator().
+    EXPECT_EQ(printed(R"(
+        struct Twice { int operator()(int x) const { return 2 * x; } };
+        struct Holder {
+            Twice f;
+            int n;
+            int run() { return f(n); }
+        };
+        Holder h;
+        h.n = 4;
+        std::cout << h.run() << h.f(5);
+        Holder* p = &h;
+        std::cout << p->f(6);
+    )",
+                      cpp17),
+              "81012");
+    // A data member that is not a function object is still not callable.
+    EXPECT_EQ(compile_error("struct S { int x; };\nS s;\ns.x(1);\n"), DiagCode::NotCallable);
+}
+
+TEST(Modern, AlgorithmsTheGameTeaches) {
+    // count_if, find_if, find_if_not, all_of, any_of, none_of, iota,
+    // min_element/max_element with a comparator and stable_sort, as in g++.
+    EXPECT_EQ(printed(R"(#include <algorithm>
+#include <numeric>
+        auto even = [](int x) { return x % 2 == 0; };
+        std::vector<int> v(6);
+        std::iota(v.begin(), v.end(), 3);
+        std::cout << v[0] << v[5] << " ";
+        std::cout << std::count_if(v.begin(), v.end(), even) << " ";
+        auto e = std::find_if(v.begin(), v.end(), even);
+        auto o = std::find_if_not(v.begin(), v.end(), [](int x) { return x < 6; });
+        std::cout << *e << *o << (std::find_if(v.begin(), v.end(), [](int x) { return x > 99; }) == v.end()) << " ";
+        std::cout << std::all_of(v.begin(), v.end(), [](int x) { return x > 2; })
+                  << std::any_of(v.begin(), v.end(), even)
+                  << std::none_of(v.begin(), v.end(), [](int x) { return x > 8; }) << " ";
+        std::vector<std::pair<int, int>> p;
+        p.push_back(std::make_pair(1, 9));
+        p.push_back(std::make_pair(5, 2));
+        p.push_back(std::make_pair(3, 2));
+        auto bySecond = [](const std::pair<int, int>& a, const std::pair<int, int>& b) { return a.second < b.second; };
+        std::cout << std::min_element(p.begin(), p.end(), bySecond)->first
+                  << std::max_element(p.begin(), p.end(), bySecond)->first << " ";
+        std::stable_sort(p.begin(), p.end(), bySecond);
+        for (int i = 0; i < 3; ++i) {
+            std::cout << p[i].first;
+        }
+        std::cout << " ";
+        std::vector<int> w(3);
+        w[0] = 3;
+        w[1] = 1;
+        w[2] = 2;
+        std::stable_sort(w.begin(), w.end());
+        std::cout << w[0] << w[1] << w[2];
+    )",
+                      cpp11),
+              "38 3 461 111 51 531 123");
+}
+
+TEST(Modern, BracedListsAndInitializerList) {
+    // C++11 list-initialization: initializer-list constructors win, a braced
+    // argument or right side of = is a temporary of the parameter's type, and
+    // a range-for over {..} iterates a std::initializer_list.
+    EXPECT_EQ(printed(R"(#include <initializer_list>
+        struct Order { int x; int y; };
+        int sum(std::initializer_list<int> l) {
+            int s = 0;
+            for (int v : l) {
+                s += v;
+            }
+            return s;
+        }
+        std::vector<int> v = {1, 2, 3};
+        std::cout << v.size() << v[2] << " ";
+        v = {4, 5};
+        std::cout << v.size() << v[0] << v[1] << " ";
+        std::map<char, int> m = {{'b', 2}, {'a', 1}, {'b', 9}};
+        std::cout << m.size() << m['a'] << m['b'] << " ";
+        for (int x : {7, 8, 9}) {
+            std::cout << x;
+        }
+        std::cout << " ";
+        std::vector<Order> orders;
+        orders.push_back({5, 2});
+        std::cout << orders[0].x << orders[0].y << " ";
+        std::initializer_list<int> l = {1, 2, 3, 4};
+        std::cout << l.size() << sum(l) << sum({10, 20}) << " ";
+        std::vector<int> e = {};
+        std::vector<int> one{3};
+        std::vector<int> three(3);
+        std::cout << e.size() << one.size() << one[0] << three.size() << " ";
+        std::vector<std::string> words = {"ab", "c"};
+        for (std::string w : {std::string("x"), std::string("yz")}) {
+            std::cout << w;
+        }
+        std::cout << words[0] << words[1] << words.size();
+    )",
+                      cpp11),
+              "33 245 212 789 52 41030 0133 xyzabc2");
+}
+
+TEST(Modern, InitializerListsAreCpp11) {
+    // C++98 has aggregates and arrays in braces, but no std::initializer_list.
+    EXPECT_EQ(compile_error("std::vector<int> v = {1, 2};\n", standard(Standard::Cpp98)),
+              DiagCode::FeatureRequiresStandard);
+    EXPECT_EQ(printed("struct P { int x; int y; };\nP p = {1, 2};\nint a[] = {3, 4};\nstd::cout << p.y << a[1];\n",
+                      standard(Standard::Cpp98)),
+              "24");
+}
+
+TEST(Modern, ARangeForDestroysItsRangeTemporariesAfterTheLoop) {
+    // [stmt.ranged]: a temporary range (a returned vector, the array behind
+    // {..}) lives until the loop ends, then is destroyed.
+    EXPECT_EQ(printed(R"(
+        int live = 0;
+        struct C { C() { ++live; } C(const C&) { ++live; } ~C() { --live; } };
+        std::vector<C> make() {
+            std::vector<C> v;
+            v.push_back(C());
+            v.push_back(C());
+            return v;
+        }
+        int n = 0;
+        for (const C& c : make()) {
+            ++n;
+            std::cout << live;
+        }
+        std::cout << " " << n << live;
+        for (const C& c : {C(), C(), C()}) {
+            ++n;
+        }
+        std::cout << " " << n << live;
+    )",
+                      cpp11),
+              "22 20 50");
+}
+
+TEST(Modern, DirectListInitialization) {
+    // `T{...}`: an aggregate, a constructor call, a scalar, a library class.
+    EXPECT_EQ(printed(R"(
+        struct Order { int x; int y; };
+        struct Point { int a; int b; Point(int x, int y) : a(x * 10), b(y) {} };
+        int sum(Order o) { return o.x + o.y; }
+        Order o = Order{5, 2};
+        std::cout << o.x << o.y << sum(Order{3, 4}) << " ";
+        auto p = Point{1, 2};
+        std::cout << p.a << p.b << Point{3, 4}.a << " ";
+        std::cout << int{3} << int{} << char{65} << " ";
+        std::cout << std::vector<int>{1, 2, 3}.size() << Order{}.y;
+    )",
+                      cpp11),
+              "527 10230 30A 30");
+    EXPECT_EQ(compile_error("struct Order { int x; };\nOrder o = Order{1};\n", standard(Standard::Cpp98)),
+              DiagCode::FeatureRequiresStandard);
+}
+
+TEST(Modern, NarrowingInsideBracesIsAnError) {
+    // C++11 forbids conversions that may lose information inside braces.
+    for (const char* source : {"int i = int{2.5};\n", "int a[] = {2.5};\n", "char c{300};\n",
+                               "double d = 1;\nint i{d};\n", "std::vector<int> v = {1.5};\n"}) {
+        auto r = run(source, cpp11);
+        ASSERT_FALSE(r.compiled.ok()) << source;
+        EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::Narrowing) << source;
+    }
+    auto d = run("int i = int{2.5};\n", cpp11).compiled.diagnostics[0];
+    EXPECT_EQ(d.arg_text("from"), "double");
+    EXPECT_EQ(d.arg_text("to"), "int");
+    // A constant that fits is fine, and C++98 allows the conversion.
+    EXPECT_EQ(printed("char c{65};\nlong l{2};\ndouble x{3};\nstd::cout << c << l << x;\n", cpp11), "A23");
+    EXPECT_EQ(printed("int a[] = {2.5};\nstd::cout << a[0];\n", standard(Standard::Cpp98)), "2");
+}
+
+TEST(Modern, DesignatedInitializers) {
+    // C++20: members named by designators; the others are value-initialized
+    // (or take their default member initializer).
+    EXPECT_EQ(printed(R"(
+        struct Order { int x; int y; int z = 7; };
+        Order o = {.x = 5, .y = 2};
+        Order p = Order{.y = 3};
+        Order q{.x = 1, .z = 9};
+        std::cout << o.x << o.y << o.z << " " << p.x << p.y << p.z << " " << q.x << q.y << q.z;
+    )",
+                      cpp20),
+              "527 037 109");
+    const char* order = "struct Order { int x; int y; };\n";
+    for (const char* bad :
+         {"Order o = {.y = 2, .x = 5};\n", "Order o = {.x = 1, .x = 2};\n", "Order o = {.x = 1, 2};\n"}) {
+        auto r = run(std::string(order) + bad, cpp20);
+        ASSERT_FALSE(r.compiled.ok()) << bad;
+        EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::DesignatorOrder) << bad;
+    }
+    EXPECT_EQ(compile_error(std::string(order) + "Order o = {.w = 1};\n", cpp20), DiagCode::NoMember);
+    EXPECT_EQ(compile_error(std::string(order) + "Order o = {.x = 5};\n", cpp17), DiagCode::FeatureRequiresStandard);
+}
+
+TEST(Modern, ThreeWayComparisonAndDefaultedComparisons) {
+    // C++20: operator<=> (defaulted member by member, or on numbers), the
+    // rewritten <, <=, >, >= and !=, and the operator== a defaulted <=> declares.
+    EXPECT_EQ(printed(R"(#include <compare>
+        struct P {
+        int x;
+        int y;
+        auto operator<=>(const P&) const = default;
+        };
+        struct Q {
+        int x;
+        bool operator==(const Q&) const = default;
+        };
+        struct D {
+        double v;
+        auto operator<=>(const D&) const = default;
+        };
+        P a{1, 2};
+        P b{1, 3};
+        std::cout << (a < b) << (a <= b) << (a > b) << (a >= b) << (a == b) << (a != b) << (a == a) << " ";
+        std::vector<P> ps;
+        ps.push_back(P{2, 0});
+        ps.push_back(P{1, 5});
+        ps.push_back(P{1, 4});
+        std::sort(ps.begin(), ps.end());
+        std::cout << ps[0].y << ps[1].y << ps[2].x << " ";
+        std::strong_ordering r = a <=> b;
+        int i = 3;
+        int j = 7;
+        std::cout << (r < 0) << ((i <=> j) < 0) << ((j <=> i) > 0) << ((i <=> i) == 0) << ((2.5 <=> 1.0) > 0) << " ";
+        Q q1{4};
+        Q q2{5};
+        std::cout << (q1 == q2) << (q1 != q2) << " ";
+        D d1{1.5};
+        D d2{2.0};
+        std::cout << (d1 < d2) << (d2 < d1);
+    )",
+                      standard(Standard::Cpp20)),
+              "1100011 452 11111 01 10");
+    EXPECT_EQ(compile_error("int a = 1;\nbool r = (a <=> a) == 0;\n", cpp17), DiagCode::FeatureRequiresStandard);
+    EXPECT_EQ(compile_error("struct P {\n    int x;\n    bool operator==(const P&) const = default;\n};\n", cpp17),
+              DiagCode::FeatureRequiresStandard);
+}
+
+TEST(Modern, ConstevalFunctionsRunAtCompileTime) {
+    // C++20 consteval: every call is a constant (usable as an array bound), and
+    // a call inside another consteval function is evaluated with it.
+    EXPECT_EQ(printed(R"(
+        consteval int sq(int x) { return x * x; }
+        consteval int quad(int x) { return sq(x) * sq(x); }
+        constexpr int a = sq(4);
+        int arr[sq(2)];
+        std::cout << a << " " << sq(5) << " " << quad(2) << " " << sizeof(arr) / sizeof(int);
+    )",
+                      cpp20),
+              "16 25 16 4");
+    auto r = run("consteval int sq(int x) { return x * x; }\nint n = 3;\nint r = sq(n);\n", cpp20);
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics[0].code, DiagCode::NotConstant);
+    EXPECT_EQ(r.compiled.diagnostics[0].range.begin.line, 3);
+    EXPECT_EQ(compile_error("consteval int sq(int x) { return x * x; }\n", cpp17), DiagCode::FeatureRequiresStandard);
+}
+
+TEST(Modern, LambdasCaptureThis) {
+    // [this] and [=] reach the members through the object's address; [*this]
+    // (C++17) holds a copy, so writing it leaves the object alone.
+    EXPECT_EQ(printed(R"(
+        struct Counter {
+            int n = 0;
+            int step = 1;
+            int twice() const { return 2 * n; }
+            void run() {
+                auto add = [this](int k) { n += k * step; };
+                add(3);
+                auto peek = [=]() { return n + twice(); };
+                auto me = [this]() { return this->n; };
+                auto copy = [*this]() mutable { n = 100; return n; };
+                std::cout << n << peek() << me() << copy() << n << " ";
+            }
+        };
+        Counter c;
+        c.run();
+        std::cout << c.n;
+    )",
+                      cpp17),
+              "3931003 3");
+    // The captured address dies with the object.
+    auto d = runtime_error(R"(struct S {
+    int v = 5;
+    int test() {
+        auto f = [this]() { return v; };
+        delete this;
+        return f();
+    }
+};
+S* s = new S;
+int x = s->test();
+)",
+                           cpp17);
+    EXPECT_EQ(d.code, DiagCode::UseAfterFree);
+    EXPECT_EQ(d.range.begin.line, 4);
+    EXPECT_EQ(compile_error("struct S {\n    int v = 0;\n    void f() { auto g = [*this]() { return v; }; }\n};\n",
+                            standard(Standard::Cpp14)),
+              DiagCode::FeatureRequiresStandard);
+}
+
+TEST(Modern, NonTypeTemplateParameters) {
+    // `template <int N>`: N is a constant inside the template (an array bound
+    // too), deduced from Buf<int, N>, and instances differing only in N are
+    // distinct types.
+    EXPECT_EQ(printed(R"(
+        template <int N> int twice() { return 2 * N; }
+        template <class T, int N> struct Buf { T cells[N]; int size() const { return N; } };
+        template <int N> int count(const Buf<int, N>& b) { return b.size() + N; }
+        Buf<int, 3> a;
+        Buf<int, 4> b;
+        constexpr int K = 5;
+        std::cout << twice<3>() << twice<K>() << " " << a.size() << b.size() << sizeof(a) / sizeof(int) << " " << count(a);
+    )",
+                      cpp17),
+              "610 343 6");
+    auto r =
+        run("template <class T, int N> struct Buf { T cells[N]; };\nBuf<int, 3> a;\nBuf<int, 4> b;\na = b;\n", cpp17);
+    EXPECT_FALSE(r.compiled.ok());
+    // C++98 has them too.
+    EXPECT_EQ(printed("template <int N> int twice() { return 2 * N; }\nstd::cout << twice<4>();\n",
+                      standard(Standard::Cpp98)),
+              "8");
+}
+
+TEST(Modern, StdArray) {
+    // An aggregate around a built-in array: brace elision, size, [] and at(),
+    // iteration, std::sort, copies by value.
+    EXPECT_EQ(printed(R"(#include <array>
+        std::array<int, 3> a = {3, 1, 2};
+        std::cout << a.size() << a[0] << a.front() << a.back() << " ";
+        std::sort(a.begin(), a.end());
+        for (int x : a) {
+            std::cout << x;
+        }
+        std::array<int, 3> b = a;
+        b[0] = 9;
+        std::cout << " " << a[0] << b[0] << " ";
+        try {
+            a.at(5);
+        } catch (const std::out_of_range& e) {
+            std::cout << "R";
+        }
+        std::array<int, 2> z{};
+        std::array<std::string, 2> words{"ab", "c"};
+        std::cout << z[1] << words[0] << words[1].size() << a.empty();
+    )",
+                      cpp11),
+              "3332 123 19 R0ab10");
+    auto d = runtime_error("std::array<int, 3> a = {1, 2, 3};\nint x = a[3];\n", cpp11);
+    EXPECT_EQ(d.code, DiagCode::OutOfBounds);
+    EXPECT_EQ(d.range.begin.line, 2);
+}
+
+TEST(Modern, StdTuple) {
+    // std::tuple of up to four elements: get<I>, make_tuple, structured
+    // bindings, std::tie from a pair, and comparisons.
+    EXPECT_EQ(printed(R"(#include <tuple>
+        std::tuple<int, char, bool> t(7, 'x', true);
+        std::cout << std::get<0>(t) << std::get<1>(t) << std::get<2>(t) << " ";
+        std::get<0>(t) = 8;
+        auto u = std::make_tuple(1, 2.5, 'c');
+        std::cout << std::get<0>(t) << std::get<0>(u) << std::get<2>(u) << " ";
+        auto [a, b, c] = t;
+        std::cout << a << b << c << " ";
+        int x = 0;
+        int y = 0;
+        std::tie(x, y) = std::make_pair(3, 4);
+        std::cout << x << y << " ";
+        std::tuple<int, int> p(1, 2);
+        std::tuple<int, int> q(1, 3);
+        std::cout << (p < q) << (p == q) << (p != q) << (q > p) << (p == std::make_tuple(1, 2));
+    )",
+                      cpp17),
+              "7x1 81c 8x1 34 10111");
+}
+
+TEST(Modern, StdFunction) {
+    // std::function<R(A...)> holds any callable of that shape: a lambda, a
+    // free function, a capturing lambda, a function object; copying it copies
+    // the callable; calling an empty one throws std::bad_function_call.
+    EXPECT_EQ(printed(R"(#include <functional>
+        int twice(int x) { return 2 * x; }
+        int add(int a, int b) { return a + b; }
+        struct Counter { int n; int operator()() { return ++n; } };
+        std::function<int(int)> f = [](int x) { return x + 1; };
+        std::cout << f(1) << " ";
+        std::function<int(int)> g = twice;
+        std::cout << g(4) << " ";
+        int base = 10;
+        std::function<int(int, int)> h = [base](int a, int b) { return base + a * b; };
+        std::cout << h(2, 3) << add(1, 2) << " ";
+        std::function<int(int, int)> k = add;
+        std::cout << k(5, 6) << " ";
+        std::function<int(int)> c = f;
+        f = g;
+        std::cout << c(1) << f(1) << " ";
+        std::vector<std::function<void()>> v;
+        int hits = 0;
+        v.push_back([&hits]() { hits += 1; });
+        v.push_back([&hits]() { hits += 10; });
+        for (int i = 0; i < 2; ++i) v[i]();
+        std::cout << hits << " ";
+        std::function<int()> cnt = Counter{0};
+        cnt();
+        std::cout << cnt() << " ";
+        std::function<int(int)> empty;
+        std::cout << static_cast<bool>(empty) << static_cast<bool>(f) << " ";
+        try {
+            empty(1);
+        } catch (const std::bad_function_call&) {
+            std::cout << "bad";
+        }
+    )",
+                      cpp17),
+              "2 8 163 11 22 11 2 01 bad");
+    auto d = runtime_error("#include <functional>\nstd::function<int(int)> e;\nint r = e(1);\n", cpp17);
+    EXPECT_EQ(d.code, DiagCode::UncaughtException);
+    EXPECT_EQ(d.range.begin.line, 3);
+}
+
+TEST(Modern, StdExpectedMonadicOptionalAndToUnderlying) {
+    // C++23: expected<T, E>, optional's and_then / transform / or_else, to_underlying.
+    EXPECT_EQ(printed(R"(#include <expected>
+        #include <optional>
+        enum class Problem { None, Empty, Full };
+        std::expected<int, Problem> half(int n) {
+            if (n % 2 != 0) return std::unexpected<Problem>(Problem::Empty);
+            return n / 2;
+        }
+        std::optional<int> find(int k) {
+            if (k > 0) return k * 10;
+            return std::nullopt;
+        }
+        std::optional<int> path(int v) {
+            if (v < 100) return v + 1;
+            return std::nullopt;
+        }
+        int first(int v) { return v % 10; }
+        std::optional<int> fallback() { return 42; }
+        auto a = half(8);
+        auto b = half(7);
+        std::cout << a.has_value() << b.has_value() << a.value() << *a << static_cast<int>(b.error()) << b.value_or(9)
+                  << (a ? 'y' : 'n') << (b ? 'y' : 'n') << " ";
+        auto r = find(3).and_then(path).transform(first);
+        auto e = find(0).and_then(path).transform(first);
+        std::cout << r.has_value() << r.value() << e.has_value() << " ";
+        auto big = find(30).and_then(path);
+        std::cout << big.has_value() << " ";
+        auto o = find(0).or_else(fallback);
+        auto o2 = find(1).or_else(fallback);
+        std::cout << o.value() << o2.value() << " ";
+        std::cout << std::to_underlying(Problem::Empty) << std::to_underlying(Problem::Full) << " ";
+        try {
+            b.value();
+        } catch (const std::bad_expected_access<Problem>& x) {
+            std::cout << "caught" << static_cast<int>(x.error());
+        }
+    )",
+                      cpp23),
+              "104419yn 110 0 4210 12 caught1");
+    // `.value()` on an error is an uncaught bad_expected_access; `*e` is undefined behavior (E0513).
+    const std::string head = "#include <expected>\nstd::expected<int, int> e = std::unexpected<int>(3);\n";
+    auto uncaught = runtime_error(head + "int v = e.value();\n", cpp23);
+    EXPECT_EQ(uncaught.code, DiagCode::UncaughtException);
+    EXPECT_NE(to_debug_string(uncaught).find("bad_expected_access"), std::string::npos);
+    auto bad = runtime_error(head + "int v = *e;\n", cpp23);
+    EXPECT_EQ(bad.code, DiagCode::BadAccess);
+    EXPECT_EQ(bad.arg_text("what"), "std::expected");
+}
+
+TEST(Modern, TheCpp23LibraryNeedsCpp23) {
+    for (const char* source :
+         {"std::expected<int, int> e;\n", "std::unexpected<int> u(1);\n",
+          "enum E { A };\nint n = std::to_underlying(A);\n",
+          "std::optional<int> o = 1;\nauto r = o.and_then([](int v) { return std::optional<int>(v); });\n",
+          "std::optional<int> o = 1;\nauto r = o.transform([](int v) { return v; });\n",
+          "std::optional<int> o = 1;\nauto r = o.or_else([]() { return std::optional<int>(2); });\n"}) {
+        auto r = run(source, cpp20);
+        bool found = false;
+        for (const auto& d : r.compiled.diagnostics) {
+            found = found || d.code == DiagCode::LibraryRequiresStandard;
+        }
+        EXPECT_TRUE(found) << source;
+    }
+}
+
+TEST(Modern, MultidimensionalSubscriptOperator) {
+    // C++23: operator[] takes any number of indices, and `m[2, 3]` passes both.
+    const std::string matrix = R"(
+        struct M {
+            int operator[](int r, int c) const { return r * 10 + c; }
+        };
+        M m;
+        std::cout << m[2, 3] << m[4, 5];
+    )";
+    EXPECT_EQ(printed(matrix, cpp23), "2345");
+    // Before C++23 both the operator and its use are rejected, naming the feature.
+    auto r = run(matrix, cpp20);
+    ASSERT_FALSE(r.compiled.ok());
+    EXPECT_EQ(r.compiled.diagnostics.front().code, DiagCode::FeatureRequiresStandard);
+    EXPECT_EQ(r.compiled.diagnostics.front().arg_text("feature"), "multidimensional-subscript");
+    EXPECT_EQ(r.compiled.diagnostics.front().arg_text("required"), "C++23");
+    // A comma inside [] keeps its old meaning before C++23 (C++20 only deprecates it).
+    EXPECT_EQ(printed(R"(
+        struct V {
+            int operator[](int i) const { return i + 100; }
+        };
+        V v;
+        int a[3] = {5, 6, 7};
+        std::cout << v[1, 2] << " " << a[0, 2];
+    )",
+                      cpp20),
+              "102 7");
+    // With C++23 a single-index operator[] does not take two.
+    EXPECT_EQ(compile_error("struct V { int operator[](int i) const { return i; } };\nV v;\nint n = v[1, 2];\n", cpp23),
+              DiagCode::ArgumentCountMismatch);
 }
